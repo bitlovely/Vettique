@@ -3,7 +3,10 @@
 import { useMemo, useState, useTransition } from "react";
 import type { RiskReport, SupplierInput } from "@/lib/analysis/types";
 
-function Pill(props: { severity: "red" | "amber" | "green"; children: string }) {
+function Pill(props: {
+  severity: "red" | "amber" | "green";
+  children: React.ReactNode;
+}) {
   const styles =
     props.severity === "green"
       ? "risk-green-bg text-risk-green border border-risk-green/20"

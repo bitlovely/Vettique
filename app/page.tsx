@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LandingNav } from "./components/LandingNav";
+import PricingCTA from "./components/PricingCTA";
 
 function SparkleIcon(props: { className?: string }) {
   return (
@@ -283,16 +284,7 @@ export default function Home() {
                   ))}
                 </ul>
 
-                <Link
-                  href="/auth?tab=signup"
-                  className={`inline-flex items-center justify-center rounded-md font-semibold w-full h-12 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background ${
-                    p.variant === "brand"
-                      ? "gradient-brand text-brand-foreground hover:opacity-90 transition-opacity"
-                      : "border border-border bg-background hover:bg-muted"
-                  }`}
-                >
-                  {p.cta}
-                </Link>
+                <PricingCTA planName={p.name as "Free" | "Pro"} />
               </div>
             ))}
           </div>
