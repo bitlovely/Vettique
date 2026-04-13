@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 function LogoMark(props: { className?: string }) {
   return (
@@ -86,6 +88,28 @@ function ButtonLink(props: {
 
 export function LandingNav() {
   const [open, setOpen] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => {
+      setUserEmail(data.user?.email ?? null);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserEmail(session?.user.email ?? null);
+    });
+    return () => {
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  async function onLogout() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    setUserEmail(null);
+    router.refresh();
+  }
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-lg border-b border-border">
@@ -110,12 +134,29 @@ export function LandingNav() {
           >
             Pricing
           </a>
-          <ButtonLink href="/auth" variant="ghost">
-            Log in
-          </ButtonLink>
-          <ButtonLink href="/auth?tab=signup" variant="brand">
-            Start Free
-          </ButtonLink>
+          {userEmail ? (
+            <>
+              <ButtonLink href="/analyze" variant="brand">
+                Dashboard
+              </ButtonLink>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="inline-flex items-center justify-center rounded-md text-sm font-semibold h-9 px-3 text-foreground hover:bg-muted/50 transition-colors"
+              >
+                Log out
+              </button>
+            </>
+          ) : (
+            <>
+              <ButtonLink href="/auth" variant="ghost">
+                Log in
+              </ButtonLink>
+              <ButtonLink href="/auth?tab=signup" variant="brand">
+                Start Free
+              </ButtonLink>
+            </>
+          )}
         </div>
 
         <button
@@ -144,20 +185,44 @@ export function LandingNav() {
           >
             Pricing
           </a>
-          <ButtonLink
-            href="/auth"
-            variant="ghost"
-            className="w-full h-10"
-          >
-            Log in
-          </ButtonLink>
-          <ButtonLink
-            href="/auth?tab=signup"
-            variant="brand"
-            className="w-full h-10"
-          >
-            Start Free
-          </ButtonLink>
+          {userEmail ? (
+            <>
+              <ButtonLink
+                href="/analyze"
+                variant="brand"
+                className="w-full h-10"
+              >
+                Dashboard
+              </ButtonLink>
+              <button
+                type="button"
+                onClick={() => {
+                  onLogout();
+                  setOpen(false);
+                }}
+                className="inline-flex items-center justify-center rounded-md text-sm font-semibold h-10 w-full text-foreground hover:bg-muted/50 transition-colors"
+              >
+                Log out
+              </button>
+            </>
+          ) : (
+            <>
+              <ButtonLink
+                href="/auth"
+                variant="ghost"
+                className="w-full h-10"
+              >
+                Log in
+              </ButtonLink>
+              <ButtonLink
+                href="/auth?tab=signup"
+                variant="brand"
+                className="w-full h-10"
+              >
+                Start Free
+              </ButtonLink>
+            </>
+          )}
         </div>
       ) : null}
     </nav>

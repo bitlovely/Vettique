@@ -62,6 +62,7 @@ export default function AuthForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const submitLabel = tab === "signup" ? "Create account" : "Log in";
@@ -69,11 +70,12 @@ export default function AuthForm() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setNotice(null);
 
     const supabase = createClient();
 
     startTransition(async () => {
-      const { error: authError } =
+      const { data, error: authError } =
         tab === "signup"
           ? await supabase.auth.signUp({ email, password })
           : await supabase.auth.signInWithPassword({ email, password });
@@ -83,7 +85,12 @@ export default function AuthForm() {
         return;
       }
 
-      router.push("/");
+      if (tab === "signup" && !data.session) {
+        setNotice("Sign up successful — please confirm your email. Check your inbox to continue.");
+        return;
+      }
+
+      router.push("/analyze");
       router.refresh();
     });
   }
@@ -164,6 +171,12 @@ export default function AuthForm() {
               {error ? (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                   {error}
+                </div>
+              ) : null}
+
+              {notice ? (
+                <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-foreground">
+                  {notice}
                 </div>
               ) : null}
 
