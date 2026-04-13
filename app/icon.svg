@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Vettique">
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#60A5FA"/>
+    </linearGradient>
+    <linearGradient id="hero" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0E1B3A"/>
+      <stop offset="1" stop-color="#1B294B"/>
+    </linearGradient>
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur"/>
+      <feColorMatrix in="blur" type="matrix"
+        values="1 0 0 0 0
+                0 1 0 0 0
+                0 0 1 0 0
+                0 0 0 .35 0" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="256" height="256" rx="56" fill="url(#hero)"/>
+
+  <!-- Brand halo -->
+  <path
+    d="M128 34c38 22 70 22 70 22v70c0 55-33 88-70 110-37-22-70-55-70-110V56s32 0 70-22Z"
+    fill="url(#brand)"
+    opacity="0.18"
+    filter="url(#softGlow)"
+  />
+
+  <!-- Shield -->
+  <path
+    d="M128 38c35 20 64 20 64 20v64c0 50-29 80-64 100-35-20-64-50-64-100V58s29 0 64-20Z"
+    fill="none"
+    stroke="url(#brand)"
+    stroke-width="10"
+    stroke-linejoin="round"
+  />
+
+  <!-- Check -->
+  <path
+    d="M92 130l24 24 48-54"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-width="14"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>
+
