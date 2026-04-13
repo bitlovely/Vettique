@@ -7,6 +7,31 @@ import { createClient } from "@/lib/supabase/client";
 
 type Tab = "login" | "signup";
 
+function LogoMark(props: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className={props.className}
+    >
+      <path
+        d="M12 2.5l8.5 4.9v9.8L12 22.1l-8.5-4.9V7.4L12 2.5z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        opacity="0.9"
+      />
+      <path
+        d="M7.5 12l3.2 3.2L16.8 9"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function TabButton(props: {
   active: boolean;
   onClick: () => void;
@@ -75,7 +100,7 @@ export default function AuthForm() {
         <div className="max-w-md mx-auto">
           <div className="text-center mb-8">
             <Link href="/" className="inline-flex items-center gap-2 mb-4">
-              <span className="h-9 w-9 rounded-xl gradient-brand" aria-hidden="true" />
+              <LogoMark className="h-8 w-8 text-brand" />
               <span className="text-xl font-bold tracking-tight text-foreground">
                 Vettique
               </span>
