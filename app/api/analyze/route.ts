@@ -22,6 +22,7 @@ type MockedCode =
   | "RATE_LIMITED"
   | "UNAVAILABLE"
   | "TRUNCATED"
+  | "CACHED"
   | "NON_JSON"
   | "INVALID_JSON";
 
@@ -132,6 +133,15 @@ type GeminiResult = {
   geminiSafetyRatings?: unknown;
   geminiTextSnippet?: string;
 };
+
+// Best-effort dedupe/cache to avoid burst 429s from double-submits.
+// Note: This is in-memory per server instance (good for dev and single instance).
+const inFlightByUser = new Map<string, Promise<GeminiResult>>();
+const lastGoodByUser = new Map<
+  string,
+  { atMs: number; result: GeminiResult }
+>();
+const LAST_GOOD_TTL_MS = 5 * 60 * 1000;
 
 async function callGemini(input: SupplierInput): Promise<GeminiResult> {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -315,6 +325,12 @@ Schema (must match exactly):
   async function parseResponseOrFallback(res: Response): Promise<GeminiResult> {
     if (!res.ok) {
       if (res.status === 429) {
+        // If we have a recent good result, prefer returning that over a fallback.
+        // This avoids showing "rate limited" to the user on repeated submits.
+        // (Still does NOT count usage because it's returned as mocked.)
+        // eslint-disable-next-line @typescript-eslint/no-use-before-define
+        const cached = getCachedGood();
+        if (cached) return cached;
         return {
           report: buildMockReport(input),
           mocked: true,
@@ -419,6 +435,18 @@ Schema (must match exactly):
               : "",
         },
       },
+    };
+  }
+
+  function getCachedGood(): GeminiResult | null {
+    const v = lastGoodByUser.get("__single__");
+    if (!v) return null;
+    if (Date.now() - v.atMs > LAST_GOOD_TTL_MS) return null;
+    return {
+      ...v.result,
+      mocked: true,
+      mockedCode: "CACHED",
+      mockedReason: "Using a recent successful AI result (cached) due to rate limiting.",
     };
   }
 
