@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { LandingNav } from "./components/LandingNav";
 import PricingCTA from "./components/PricingCTA";
+import SiteFooter from "./components/SiteFooter";
 
 function SparkleIcon(props: { className?: string }) {
   return (
@@ -291,41 +292,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer className="bg-primary py-12">
-        <div className="container mx-auto px-4">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-6 w-6 items-center justify-center text-brand-glow">
-                <FeatureIcon className="h-6 w-6" />
-              </span>
-              <span className="text-lg font-bold text-primary-foreground">Vettique</span>
-            </div>
-            <div className="flex gap-6 text-sm text-primary-foreground/60">
-              <a
-                href="#features"
-                className="hover:text-primary-foreground transition-colors"
-              >
-                Features
-              </a>
-              <a
-                href="#pricing"
-                className="hover:text-primary-foreground transition-colors"
-              >
-                Pricing
-              </a>
-              <Link
-                href="/auth"
-                className="hover:text-primary-foreground transition-colors"
-              >
-                Log in
-              </Link>
-            </div>
-            <p className="text-sm text-primary-foreground/40">
-              © {new Date().getFullYear()} Vettique. All rights reserved.
-            </p>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

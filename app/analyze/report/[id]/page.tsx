@@ -86,10 +86,20 @@ export default async function ReportPage({ params }: { params: Promise<Params> }
     : [];
 
   return (
-    <div className="container mx-auto px-4 py-10">
-      <div className="max-w-3xl mx-auto">
-        <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-          <div className="p-8 border-b border-border bg-muted/10">
+    <div className="relative">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+      >
+        <div className="vettique-blob absolute -top-24 -left-20 h-72 w-72 rounded-full bg-sky-400/40 dark:bg-sky-500/20" />
+        <div className="vettique-blob absolute top-20 -right-28 h-80 w-80 rounded-full bg-fuchsia-400/30 dark:bg-fuchsia-500/18 [animation-delay:1.2s]" />
+        <div className="vettique-blob absolute bottom-[-6rem] left-1/3 h-96 w-96 rounded-full bg-emerald-400/25 dark:bg-emerald-500/14 [animation-delay:2.4s]" />
+      </div>
+
+      <div className="container mx-auto px-4 py-10">
+        <div className="max-w-4xl mx-auto">
+          <div className="vettique-fade-up rounded-2xl border border-border/60 bg-card/70 dark:bg-card/55 backdrop-blur-xl shadow-[0_20px_80px_-30px_rgba(0,0,0,0.25)] dark:shadow-[0_30px_90px_-40px_rgba(0,0,0,0.55)] overflow-hidden">
+            <div className="p-6 sm:p-8 border-b border-border/60 bg-gradient-to-br from-muted/40 to-transparent dark:from-muted/25 dark:to-transparent">
             <p className="text-xs text-muted-foreground">
               <a href="/analyze" className="hover:underline">
                 Dashboard
@@ -108,16 +118,16 @@ export default async function ReportPage({ params }: { params: Promise<Params> }
                   {report.category}
                 </p>
               </div>
-              <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+              <div className="flex w-full sm:w-auto flex-col sm:flex-row gap-3 sm:items-center sm:justify-end">
                 <a
                   href="/analyze"
-                  className="inline-flex items-center justify-center rounded-md font-semibold h-10 px-4 border border-border bg-background text-foreground hover:bg-muted/40 transition-colors"
+                  className="inline-flex w-full sm:w-auto items-center justify-center rounded-md font-semibold h-10 px-5 whitespace-nowrap border border-border/70 bg-background/60 dark:bg-background/35 text-foreground hover:bg-muted/40 dark:hover:bg-muted/20 transition-colors shadow-sm hover:shadow-md active:translate-y-px motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
                   Back to dashboard
                 </a>
                 <a
                   href="/analyze/new"
-                  className="inline-flex items-center justify-center rounded-md font-semibold h-10 px-4 gradient-brand text-brand-foreground hover:opacity-90 transition-opacity"
+                  className="inline-flex w-full sm:w-auto items-center justify-center rounded-md font-semibold h-10 px-5 whitespace-nowrap gradient-brand text-brand-foreground hover:opacity-95 transition-opacity shadow-sm hover:shadow-md active:translate-y-px motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
                   New check
                 </a>
@@ -125,21 +135,21 @@ export default async function ReportPage({ params }: { params: Promise<Params> }
             </div>
           </div>
 
-          <div className="p-8">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-xl border border-border p-5 bg-background">
+          <div className="p-6 sm:p-8">
+          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+            <div className="rounded-xl border border-border/70 p-5 bg-background/60 dark:bg-background/40 backdrop-blur">
               <p className="text-sm text-muted-foreground">Risk score</p>
               <p className="text-2xl font-extrabold text-foreground mt-1">
                 {report.risk_score}/100
               </p>
             </div>
-            <div className="rounded-xl border border-border p-5 bg-background">
+            <div className="rounded-xl border border-border/70 p-5 bg-background/60 dark:bg-background/40 backdrop-blur">
               <p className="text-sm text-muted-foreground">Risk level</p>
               <p className="text-2xl font-extrabold text-foreground mt-1">
                 {report.risk_level}
               </p>
             </div>
-            <div className="rounded-xl border border-border p-5 bg-background">
+            <div className="rounded-xl border border-border/70 p-5 bg-background/60 dark:bg-background/40 backdrop-blur">
               <p className="text-sm text-muted-foreground">Verdict</p>
               <p className="text-2xl font-extrabold text-foreground mt-1">
                 {report.verdict_class}
@@ -147,19 +157,19 @@ export default async function ReportPage({ params }: { params: Promise<Params> }
             </div>
           </div>
 
-          <div className="mt-8 rounded-xl border border-border bg-muted/30 p-5">
+          <div className="mt-8 rounded-xl border border-border/70 bg-background/60 dark:bg-background/40 backdrop-blur p-5">
             <h2 className="text-sm font-semibold text-foreground">Summary</h2>
             <p className="text-sm text-muted-foreground mt-2">{report.summary}</p>
           </div>
 
-          <div className="mt-6 rounded-xl border border-border bg-muted/30 p-5">
+          <div className="mt-6 rounded-xl border border-border/70 bg-background/60 dark:bg-background/40 backdrop-blur p-5">
             <h2 className="text-sm font-semibold text-foreground">Flags</h2>
             <div className="mt-3 grid gap-3">
               {flags.length ? (
                 flags.map((f: any, idx: number) => (
                   <div
                     key={idx}
-                    className="rounded-xl border border-border bg-background p-4"
+                    className="rounded-xl border border-border/70 bg-background/70 dark:bg-background/40 p-4"
                   >
                     <p className="text-xs text-muted-foreground">
                       {String(f?.severity ?? "").toUpperCase() || "FLAG"}
@@ -178,7 +188,7 @@ export default async function ReportPage({ params }: { params: Promise<Params> }
             </div>
           </div>
 
-          <div className="mt-6 rounded-xl border border-border bg-muted/30 p-5">
+          <div className="mt-6 rounded-xl border border-border/70 bg-background/60 dark:bg-background/40 backdrop-blur p-5">
             <h2 className="text-sm font-semibold text-foreground">
               Recommendations
             </h2>
@@ -187,7 +197,7 @@ export default async function ReportPage({ params }: { params: Promise<Params> }
                 recommendations.map((r: any, idx: number) => (
                   <div
                     key={idx}
-                    className="rounded-xl border border-border bg-background p-4 text-sm text-muted-foreground"
+                    className="rounded-xl border border-border/70 bg-background/70 dark:bg-background/40 p-4 text-sm text-muted-foreground"
                   >
                     {String(r ?? "")}
                   </div>
@@ -198,7 +208,7 @@ export default async function ReportPage({ params }: { params: Promise<Params> }
             </div>
           </div>
 
-          <div className="mt-6 rounded-xl border border-border bg-muted/30 p-5">
+          <div className="mt-6 rounded-xl border border-border/70 bg-background/60 dark:bg-background/40 backdrop-blur p-5">
             <h2 className="text-sm font-semibold text-foreground">Verdict</h2>
             <p className="font-semibold text-foreground mt-2">
               {report.verdict_headline}
@@ -210,6 +220,7 @@ export default async function ReportPage({ params }: { params: Promise<Params> }
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }

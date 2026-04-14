@@ -102,3 +102,43 @@ h6 {
 .gradient-card {
   background: linear-gradient(180deg, #fff, #f6f7f9);
 }
+
+@keyframes vettique-float {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, -18px, 0) scale(1.03);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes vettique-fade-up {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.vettique-blob {
+  filter: blur(50px);
+  opacity: 0.55;
+  animation: vettique-float 10s ease-in-out infinite;
+}
+
+.vettique-fade-up {
+  animation: vettique-fade-up 450ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vettique-blob,
+  .vettique-fade-up {
+    animation: none !important;
+  }
+}

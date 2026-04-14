@@ -33,7 +33,9 @@ export async function POST() {
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     line_items: [{ price: priceId, quantity: 1 }],
-    success_url: `${siteUrl}/analyze?upgraded=1`,
+    // Include session id so we can sync plan in dev/test
+    // even if webhooks are not configured/forwarded.
+    success_url: `${siteUrl}/analyze?upgraded=1&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${siteUrl}/analyze?upgraded=0`,
     customer_email: user.email ?? undefined,
     metadata: {

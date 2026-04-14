@@ -49,8 +49,8 @@ export default function BillingActions(props: {
   return (
     <div className="space-y-3">
       {props.plan === "free" ? (
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <p className="text-sm text-muted-foreground">
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground leading-relaxed">
             Free plan usage:{" "}
             <span className="font-semibold text-foreground">
               {props.checksThisMonth}/{props.limit}
@@ -61,14 +61,17 @@ export default function BillingActions(props: {
             type="button"
             onClick={goToCheckout}
             disabled={pending}
-            className="inline-flex items-center justify-center rounded-md font-semibold h-10 px-4 gradient-brand text-brand-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="inline-flex w-full items-center justify-center rounded-md font-semibold h-10 px-4 gradient-brand text-brand-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            {pending ? "Opening…" : "Upgrade to Pro — $19/month"}
+            {pending ? "Opening…" : "Upgrade to Pro"}
           </button>
+          <p className="text-xs text-muted-foreground">
+            $19/month. Cancel anytime.
+          </p>
         </div>
       ) : (
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <p className="text-sm text-muted-foreground">
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground leading-relaxed">
             Plan: <span className="font-semibold text-foreground">Pro</span> (unlimited
             checks)
           </p>
@@ -76,7 +79,7 @@ export default function BillingActions(props: {
             type="button"
             onClick={goToPortal}
             disabled={pending}
-            className="inline-flex items-center justify-center rounded-md font-semibold h-10 px-4 border border-border bg-background hover:bg-muted transition-colors disabled:opacity-50"
+            className="inline-flex w-full items-center justify-center rounded-md font-semibold h-10 px-4 border border-border bg-background hover:bg-muted transition-colors disabled:opacity-50"
           >
             {pending ? "Opening…" : "Manage billing"}
           </button>
