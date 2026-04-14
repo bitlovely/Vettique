@@ -143,7 +143,7 @@ const lastGoodByUser = new Map<
 >();
 const LAST_GOOD_TTL_MS = 5 * 60 * 1000;
 
-async function callGemini(input: SupplierInput): Promise<GeminiResult> {
+async function callGemini(userId: string, input: SupplierInput): Promise<GeminiResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return {
@@ -322,13 +322,25 @@ Schema (must match exactly):
     return res!;
   }
 
+  function getCachedGood(): GeminiResult | null {
+    const v = lastGoodByUser.get(userId);
+    if (!v) return null;
+    if (Date.now() - v.atMs > LAST_GOOD_TTL_MS) return null;
+    return {
+      ...v.result,
+      mocked: true,
+      mockedCode: "CACHED",
+      mockedReason:
+        "Using a recent successful AI result (cached) due to rate limiting.",
+    };
+  }
+
   async function parseResponseOrFallback(res: Response): Promise<GeminiResult> {
     if (!res.ok) {
       if (res.status === 429) {
         // If we have a recent good result, prefer returning that over a fallback.
         // This avoids showing "rate limited" to the user on repeated submits.
         // (Still does NOT count usage because it's returned as mocked.)
-        // eslint-disable-next-line @typescript-eslint/no-use-before-define
         const cached = getCachedGood();
         if (cached) return cached;
         return {
@@ -438,47 +450,58 @@ Schema (must match exactly):
     };
   }
 
-  function getCachedGood(): GeminiResult | null {
-    const v = lastGoodByUser.get("__single__");
-    if (!v) return null;
-    if (Date.now() - v.atMs > LAST_GOOD_TTL_MS) return null;
-    return {
-      ...v.result,
-      mocked: true,
-      mockedCode: "CACHED",
-      mockedReason: "Using a recent successful AI result (cached) due to rate limiting.",
-    };
-  }
+  const existing = inFlightByUser.get(userId);
+  if (existing) return existing;
 
-  // First attempt (normal). If it gets truncated/non-JSON, retry once compact.
-  const first = await parseResponseOrFallback(await fetchWithRetry(basePayload));
-  if (!first.mocked) return first;
-  if (first.mockedCode !== "TRUNCATED" && first.mockedCode !== "NON_JSON") {
-    return first;
-  }
-
-  const second = await parseResponseOrFallback(
-    await fetchWithRetry(compactPayload),
-  );
-  if (!second.mocked) return second;
-
-  // If we hit MAX_TOKENS, do one small "JSON repair" pass using the partial output.
-  const repairCandidate =
-    (second.mockedCode === "TRUNCATED" && second.geminiTextSnippet) ||
-    (first.mockedCode === "TRUNCATED" && first.geminiTextSnippet) ||
-    undefined;
-
-  if (repairCandidate) {
-    const repaired = await parseResponseOrFallback(
-      await fetchWithRetry(buildRepairPayload(repairCandidate)),
+  const work = (async (): Promise<GeminiResult> => {
+    // First attempt (normal). If it gets truncated/non-JSON, retry once compact.
+    const first = await parseResponseOrFallback(
+      await fetchWithRetry(basePayload),
     );
-    if (!repaired.mocked) return repaired;
-  }
+    if (!first.mocked) {
+      lastGoodByUser.set(userId, { atMs: Date.now(), result: first });
+      return first;
+    }
+    if (first.mockedCode !== "TRUNCATED" && first.mockedCode !== "NON_JSON") {
+      return first;
+    }
 
-  return first;
+    const second = await parseResponseOrFallback(
+      await fetchWithRetry(compactPayload),
+    );
+    if (!second.mocked) {
+      lastGoodByUser.set(userId, { atMs: Date.now(), result: second });
+      return second;
+    }
+
+    // If we hit MAX_TOKENS, do one small "JSON repair" pass using the partial output.
+    const repairCandidate =
+      (second.mockedCode === "TRUNCATED" && second.geminiTextSnippet) ||
+      (first.mockedCode === "TRUNCATED" && first.geminiTextSnippet) ||
+      undefined;
+
+    if (repairCandidate) {
+      const repaired = await parseResponseOrFallback(
+        await fetchWithRetry(buildRepairPayload(repairCandidate)),
+      );
+      if (!repaired.mocked) {
+        lastGoodByUser.set(userId, { atMs: Date.now(), result: repaired });
+        return repaired;
+      }
+    }
+
+    return first;
+  })();
+
+  inFlightByUser.set(userId, work);
+  try {
+    return await work;
+  } finally {
+    inFlightByUser.delete(userId);
+  }
 }
 
-async function analyzeWithUsagePolicy(input: SupplierInput): Promise<{
+async function analyzeWithUsagePolicy(userId: string, input: SupplierInput): Promise<{
   report: RiskReport;
   mocked: boolean;
   mockedCode?: MockedCode;
@@ -488,7 +511,7 @@ async function analyzeWithUsagePolicy(input: SupplierInput): Promise<{
   geminiTextSnippet?: string;
   shouldCountUsage: boolean;
 }> {
-  const result = await callGemini(input);
+  const result = await callGemini(userId, input);
   return {
     report: result.report,
     mocked: result.mocked,
@@ -497,7 +520,9 @@ async function analyzeWithUsagePolicy(input: SupplierInput): Promise<{
     geminiFinishReason: result.geminiFinishReason,
     geminiSafetyRatings: result.geminiSafetyRatings,
     geminiTextSnippet: result.geminiTextSnippet,
-    shouldCountUsage: !result.mocked,
+    // Count usage for both AI and fallback ("demo") reports.
+    // This matches the product rule: free plan includes 3 total checks/month.
+    shouldCountUsage: true,
   };
 }
 
@@ -570,7 +595,7 @@ export async function POST(req: Request) {
       geminiSafetyRatings,
       geminiTextSnippet,
       shouldCountUsage,
-    } = await analyzeWithUsagePolicy(input);
+    } = await analyzeWithUsagePolicy(user.id, input);
 
     // Count usage only on non-mocked successful AI responses.
     // This ensures transient Gemini failures (e.g. 503/429) don't burn a free check.
@@ -580,6 +605,23 @@ export async function POST(req: Request) {
         .update({ checks_this_month: checksThisMonth + 1 })
         .eq("user_id", user.id);
     }
+
+    // Persist report (both AI + fallback/demo) for the user's history.
+    await supabase.from("supplier_reports").insert({
+      user_id: user.id,
+      company_name: input.companyName,
+      country: input.countryRegion,
+      platform: input.platformFoundOn ?? null,
+      category: input.productCategory,
+      risk_score: report.riskScore,
+      risk_level: report.riskLevel,
+      summary: report.summary,
+      flags: report.flags,
+      recommendations: report.recommendations,
+      verdict_class: report.verdict.class,
+      verdict_headline: report.verdict.headline,
+      verdict_detail: report.verdict.detail,
+    });
 
     return NextResponse.json(
       {
