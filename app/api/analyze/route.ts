@@ -127,6 +127,9 @@ type GeminiResult = {
   mocked: boolean;
   mockedCode?: MockedCode;
   mockedReason?: string;
+  geminiFinishReason?: string;
+  geminiSafetyRatings?: unknown;
+  geminiTextSnippet?: string;
 };
 
 async function callGemini(input: SupplierInput): Promise<GeminiResult> {
@@ -277,6 +280,12 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
   const data = (await res.json()) as any;
   const text =
     data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).join("") ?? "";
+  const finishReason = data?.candidates?.[0]?.finishReason as unknown;
+  const safetyRatings = data?.candidates?.[0]?.safetyRatings as unknown;
+  const textSnippet =
+    typeof text === "string" && text.trim().length
+      ? text.trim().slice(0, 200)
+      : "";
 
   let parsed: any;
   try {
@@ -294,7 +303,12 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
         report: buildMockReport(input),
         mocked: true,
         mockedCode: "NON_JSON",
-        mockedReason: "Gemini returned non-JSON output.",
+        mockedReason:
+          "Gemini returned non-JSON output (cannot parse). This can happen if the model adds extra text, returns an empty response, or safety-filters content.",
+        geminiFinishReason:
+          typeof finishReason === "string" ? finishReason : undefined,
+        geminiSafetyRatings: safetyRatings,
+        geminiTextSnippet: textSnippet || undefined,
       };
     }
     try {
@@ -304,7 +318,11 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
         report: buildMockReport(input),
         mocked: true,
         mockedCode: "INVALID_JSON",
-        mockedReason: "Gemini returned invalid JSON.",
+        mockedReason: "Gemini returned invalid JSON (malformed).",
+        geminiFinishReason:
+          typeof finishReason === "string" ? finishReason : undefined,
+        geminiSafetyRatings: safetyRatings,
+        geminiTextSnippet: textSnippet || undefined,
       };
     }
   }
@@ -339,6 +357,9 @@ async function analyzeWithUsagePolicy(input: SupplierInput): Promise<{
   mocked: boolean;
   mockedCode?: MockedCode;
   mockedReason?: string;
+  geminiFinishReason?: string;
+  geminiSafetyRatings?: unknown;
+  geminiTextSnippet?: string;
   shouldCountUsage: boolean;
 }> {
   const result = await callGemini(input);
@@ -347,6 +368,9 @@ async function analyzeWithUsagePolicy(input: SupplierInput): Promise<{
     mocked: result.mocked,
     mockedCode: result.mockedCode,
     mockedReason: result.mockedReason,
+    geminiFinishReason: result.geminiFinishReason,
+    geminiSafetyRatings: result.geminiSafetyRatings,
+    geminiTextSnippet: result.geminiTextSnippet,
     shouldCountUsage: !result.mocked,
   };
 }
@@ -411,8 +435,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const { report, mocked, mockedCode, mockedReason, shouldCountUsage } =
-      await analyzeWithUsagePolicy(input);
+    const {
+      report,
+      mocked,
+      mockedCode,
+      mockedReason,
+      geminiFinishReason,
+      geminiSafetyRatings,
+      geminiTextSnippet,
+      shouldCountUsage,
+    } = await analyzeWithUsagePolicy(input);
 
     // Count usage only on non-mocked successful AI responses.
     // This ensures transient Gemini failures (e.g. 503/429) don't burn a free check.
@@ -424,7 +456,16 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(
-      { report, mocked, mockedCode, mockedReason },
+      {
+        report,
+        mocked,
+        mockedCode,
+        mockedReason,
+        // Optional debugging hints for the UI/logs when mocked === true.
+        geminiFinishReason,
+        geminiSafetyRatings,
+        geminiTextSnippet,
+      },
       { status: 200 },
     );
   } catch (e) {
