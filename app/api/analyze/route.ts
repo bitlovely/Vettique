@@ -247,6 +247,38 @@ IMPORTANT: Keep the JSON extremely compact. Use very short sentences.`;
     },
   } as const;
 
+  function buildRepairPayload(truncatedJson: string) {
+    const repairSystem = `You will be given a TRUNCATED JSON document that should match a specific schema.
+Output ONLY a complete, valid JSON object matching the schema.
+- Do NOT include markdown or backticks.
+- Preserve existing values where present; only add what is missing to complete the structure.
+- Keep all strings short.
+
+Schema (must match exactly):
+{
+  "riskScore": <integer 0-100>,
+  "riskLevel": "<LOW|MEDIUM|HIGH>",
+  "summary": "<short summary>",
+  "flags": [{"severity":"<red|amber|green>","title":"<short>","detail":"<short>"}],
+  "recommendations": ["<short>"],
+  "verdict": {"class":"<proceed|caution|avoid>","headline":"<short>","detail":"<short>"}
+}`;
+
+    return {
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: `${repairSystem}\n\nTRUNCATED_JSON:\n${truncatedJson}` }],
+        },
+      ],
+      generationConfig: {
+        temperature: 0,
+        responseMimeType: "application/json",
+        maxOutputTokens: 700,
+      },
+    } as const;
+  }
+
   const apiKeySafe = apiKey as string;
 
   async function fetchWithRetry(payload: unknown): Promise<Response> {
@@ -399,7 +431,22 @@ IMPORTANT: Keep the JSON extremely compact. Use very short sentences.`;
   const second = await parseResponseOrFallback(
     await fetchWithRetry(compactPayload),
   );
-  return second.mocked ? first : second;
+  if (!second.mocked) return second;
+
+  // If we hit MAX_TOKENS, do one small "JSON repair" pass using the partial output.
+  const repairCandidate =
+    (second.mockedCode === "TRUNCATED" && second.geminiTextSnippet) ||
+    (first.mockedCode === "TRUNCATED" && first.geminiTextSnippet) ||
+    undefined;
+
+  if (repairCandidate) {
+    const repaired = await parseResponseOrFallback(
+      await fetchWithRetry(buildRepairPayload(repairCandidate)),
+    );
+    if (!repaired.mocked) return repaired;
+  }
+
+  return first;
 }
 
 async function analyzeWithUsagePolicy(input: SupplierInput): Promise<{
