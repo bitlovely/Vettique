@@ -209,7 +209,8 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
     });
 
     if (res.ok) break;
-    if (res.status !== 429) break;
+    // Retry on transient capacity/rate-limit errors.
+    if (res.status !== 429 && res.status !== 503) break;
 
     if (attempt < maxAttempts) {
       const retryAfterMs = parseRetryAfterMs(res);
@@ -234,6 +235,12 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
       return buildMockReport(
         input,
         "Gemini is rate-limiting (429) — using fallback",
+      );
+    }
+    if (res.status === 503) {
+      return buildMockReport(
+        input,
+        "Gemini is unavailable (503) — using fallback",
       );
     }
     const text = await res.text().catch(() => "");
@@ -268,6 +275,18 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
       detail: typeof parsed?.verdict?.detail === "string" ? parsed.verdict.detail : "",
     },
   };
+}
+
+async function analyzeWithUsagePolicy(input: SupplierInput): Promise<{
+  report: RiskReport;
+  mocked: boolean;
+  shouldCountUsage: boolean;
+}> {
+  const report = await callGemini(input);
+  const mocked =
+    report.summary.startsWith("Demo report") ||
+    report.summary.startsWith("Mock report");
+  return { report, mocked, shouldCountUsage: !mocked };
 }
 
 export async function POST(req: Request) {
@@ -330,14 +349,16 @@ export async function POST(req: Request) {
       );
     }
 
-    // Increment usage (best-effort)
-    await supabase
-      .from("profiles")
-      .update({ checks_this_month: checksThisMonth + 1 })
-      .eq("user_id", user.id);
+    const { report, mocked, shouldCountUsage } = await analyzeWithUsagePolicy(input);
 
-    const report = await callGemini(input);
-    const mocked = report.summary.startsWith("Demo report") || report.summary.startsWith("Mock report");
+    // Count usage only on non-mocked successful AI responses.
+    // This ensures transient Gemini failures (e.g. 503/429) don't burn a free check.
+    if (shouldCountUsage) {
+      await supabase
+        .from("profiles")
+        .update({ checks_this_month: checksThisMonth + 1 })
+        .eq("user_id", user.id);
+    }
 
     return NextResponse.json({ report, mocked }, { status: 200 });
   } catch (e) {
