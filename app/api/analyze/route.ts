@@ -21,6 +21,7 @@ type MockedCode =
   | "NO_API_KEY"
   | "RATE_LIMITED"
   | "UNAVAILABLE"
+  | "TRUNCATED"
   | "NON_JSON"
   | "INVALID_JSON";
 
@@ -166,7 +167,7 @@ async function callGemini(input: SupplierInput): Promise<GeminiResult> {
 
 Analyse this supplier profile and return a structured JSON report. Be realistic — not every supplier is high risk, but be genuinely critical where warranted.
 
-Return ONLY valid JSON in exactly this structure (no markdown, no backticks):
+Return ONLY valid JSON in exactly this structure (no markdown, no backticks). Keep strings concise:
 {
   "riskScore": <integer 0-100, where 0=very safe, 100=extreme risk>,
   "riskLevel": "<LOW|MEDIUM|HIGH>",
@@ -188,7 +189,7 @@ Return ONLY valid JSON in exactly this structure (no markdown, no backticks):
   }
 }
 
-Produce 4-6 flags and 4-5 recommendations. Make them specific to the details given, not generic boilerplate.`;
+Produce 4-5 flags and 4 recommendations. Make them specific to the details given, not generic boilerplate.`;
 
   const enabledChecks = Object.entries(input.checksToRun)
     .filter(([, v]) => v)
@@ -220,7 +221,7 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
       // (If the model still returns non-JSON, we fallback gracefully below.)
       responseMimeType: "application/json",
       // Keep this moderate to reduce token-per-minute throttling on free tier.
-      maxOutputTokens: 650,
+      maxOutputTokens: 900,
     },
   };
 
@@ -299,6 +300,19 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
     // Try extracting JSON from any surrounding text
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) {
+      if (finishReason === "MAX_TOKENS") {
+        return {
+          report: buildMockReport(input),
+          mocked: true,
+          mockedCode: "TRUNCATED",
+          mockedReason:
+            "Gemini response was truncated (MAX_TOKENS) before completing valid JSON.",
+          geminiFinishReason:
+            typeof finishReason === "string" ? finishReason : undefined,
+          geminiSafetyRatings: safetyRatings,
+          geminiTextSnippet: textSnippet || undefined,
+        };
+      }
       return {
         report: buildMockReport(input),
         mocked: true,
