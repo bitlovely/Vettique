@@ -17,13 +17,18 @@ function normalizeVerdictClass(v: unknown): RiskReport["verdict"]["class"] {
   return "caution";
 }
 
-function buildMockReport(input: SupplierInput, reason?: string): RiskReport {
+type MockedCode =
+  | "NO_API_KEY"
+  | "RATE_LIMITED"
+  | "UNAVAILABLE"
+  | "NON_JSON"
+  | "INVALID_JSON";
+
+function buildMockReport(input: SupplierInput): RiskReport {
   return {
     riskScore: 42,
     riskLevel: "MEDIUM",
-    summary: reason
-      ? `Demo report (${reason}). Supplier: ${input.companyName}.`
-      : `Mock report (set GEMINI_API_KEY to enable AI). Supplier: ${input.companyName}.`,
+    summary: `Fallback report. Supplier: ${input.companyName}.`,
     flags: [
       {
         severity: "amber",
@@ -117,9 +122,23 @@ function validateInput(body: unknown): SupplierInput {
   };
 }
 
-async function callGemini(input: SupplierInput): Promise<RiskReport> {
+type GeminiResult = {
+  report: RiskReport;
+  mocked: boolean;
+  mockedCode?: MockedCode;
+  mockedReason?: string;
+};
+
+async function callGemini(input: SupplierInput): Promise<GeminiResult> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return buildMockReport(input);
+  if (!apiKey) {
+    return {
+      report: buildMockReport(input),
+      mocked: true,
+      mockedCode: "NO_API_KEY",
+      mockedReason: "Missing GEMINI_API_KEY (using fallback).",
+    };
+  }
 
   const model =
     process.env.GEMINI_MODEL?.trim() ||
@@ -194,6 +213,9 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
     ],
     generationConfig: {
       temperature: 0.3,
+      // Encourage the API to return machine-readable JSON.
+      // (If the model still returns non-JSON, we fallback gracefully below.)
+      responseMimeType: "application/json",
       // Keep this moderate to reduce token-per-minute throttling on free tier.
       maxOutputTokens: 650,
     },
@@ -232,16 +254,21 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
 
   if (!res.ok) {
     if (res.status === 429) {
-      return buildMockReport(
-        input,
-        "Gemini is rate-limiting (429) — using fallback",
-      );
+      return {
+        report: buildMockReport(input),
+        mocked: true,
+        mockedCode: "RATE_LIMITED",
+        mockedReason: "Gemini rate-limited the request (429).",
+      };
     }
     if (res.status === 503) {
-      return buildMockReport(
-        input,
-        "Gemini is unavailable (503) — using fallback",
-      );
+      return {
+        report: buildMockReport(input),
+        mocked: true,
+        mockedCode: "UNAVAILABLE",
+        mockedReason:
+          "Gemini is temporarily unavailable due to high demand (503).",
+      };
     }
     const text = await res.text().catch(() => "");
     throw new Error(`Gemini error: ${res.status} ${text}`.slice(0, 500));
@@ -253,26 +280,56 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
 
   let parsed: any;
   try {
-    parsed = JSON.parse(text);
+    const cleaned = String(text)
+      .trim()
+      // Remove common markdown fences if they slip through.
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "");
+    parsed = JSON.parse(cleaned);
   } catch {
     // Try extracting JSON from any surrounding text
     const match = text.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("Gemini returned non-JSON output.");
-    parsed = JSON.parse(match[0]);
+    if (!match) {
+      return {
+        report: buildMockReport(input),
+        mocked: true,
+        mockedCode: "NON_JSON",
+        mockedReason: "Gemini returned non-JSON output.",
+      };
+    }
+    try {
+      parsed = JSON.parse(match[0]);
+    } catch {
+      return {
+        report: buildMockReport(input),
+        mocked: true,
+        mockedCode: "INVALID_JSON",
+        mockedReason: "Gemini returned invalid JSON.",
+      };
+    }
   }
 
   return {
-    riskScore: clampScore(Number(parsed?.riskScore)),
-    riskLevel: normalizeRiskLevel(parsed?.riskLevel),
-    summary: typeof parsed?.summary === "string" ? parsed.summary : "",
-    flags: Array.isArray(parsed?.flags) ? parsed.flags : [],
-    recommendations: Array.isArray(parsed?.recommendations)
-      ? parsed.recommendations
-      : [],
-    verdict: {
-      class: normalizeVerdictClass(parsed?.verdict?.class),
-      headline: typeof parsed?.verdict?.headline === "string" ? parsed.verdict.headline : "",
-      detail: typeof parsed?.verdict?.detail === "string" ? parsed.verdict.detail : "",
+    mocked: false,
+    report: {
+      riskScore: clampScore(Number(parsed?.riskScore)),
+      riskLevel: normalizeRiskLevel(parsed?.riskLevel),
+      summary: typeof parsed?.summary === "string" ? parsed.summary : "",
+      flags: Array.isArray(parsed?.flags) ? parsed.flags : [],
+      recommendations: Array.isArray(parsed?.recommendations)
+        ? parsed.recommendations
+        : [],
+      verdict: {
+        class: normalizeVerdictClass(parsed?.verdict?.class),
+        headline:
+          typeof parsed?.verdict?.headline === "string"
+            ? parsed.verdict.headline
+            : "",
+        detail:
+          typeof parsed?.verdict?.detail === "string"
+            ? parsed.verdict.detail
+            : "",
+      },
     },
   };
 }
@@ -280,13 +337,18 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
 async function analyzeWithUsagePolicy(input: SupplierInput): Promise<{
   report: RiskReport;
   mocked: boolean;
+  mockedCode?: MockedCode;
+  mockedReason?: string;
   shouldCountUsage: boolean;
 }> {
-  const report = await callGemini(input);
-  const mocked =
-    report.summary.startsWith("Demo report") ||
-    report.summary.startsWith("Mock report");
-  return { report, mocked, shouldCountUsage: !mocked };
+  const result = await callGemini(input);
+  return {
+    report: result.report,
+    mocked: result.mocked,
+    mockedCode: result.mockedCode,
+    mockedReason: result.mockedReason,
+    shouldCountUsage: !result.mocked,
+  };
 }
 
 export async function POST(req: Request) {
@@ -349,7 +411,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const { report, mocked, shouldCountUsage } = await analyzeWithUsagePolicy(input);
+    const { report, mocked, mockedCode, mockedReason, shouldCountUsage } =
+      await analyzeWithUsagePolicy(input);
 
     // Count usage only on non-mocked successful AI responses.
     // This ensures transient Gemini failures (e.g. 503/429) don't burn a free check.
@@ -360,7 +423,10 @@ export async function POST(req: Request) {
         .eq("user_id", user.id);
     }
 
-    return NextResponse.json({ report, mocked }, { status: 200 });
+    return NextResponse.json(
+      { report, mocked, mockedCode, mockedReason },
+      { status: 200 },
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 400 });
