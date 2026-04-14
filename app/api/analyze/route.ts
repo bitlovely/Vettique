@@ -167,7 +167,13 @@ async function callGemini(input: SupplierInput): Promise<GeminiResult> {
 
 Analyse this supplier profile and return a structured JSON report. Be realistic — not every supplier is high risk, but be genuinely critical where warranted.
 
-Return ONLY valid JSON in exactly this structure (no markdown, no backticks). Keep strings concise:
+Return ONLY valid JSON in exactly this structure (no markdown, no backticks).
+Keep the response SHORT so it always fits:
+- summary: max 280 characters
+- each flag.detail: max 180 characters
+- each recommendation: max 140 characters
+- verdict.headline: max 80 characters
+- verdict.detail: max 220 characters
 {
   "riskScore": <integer 0-100, where 0=very safe, 100=extreme risk>,
   "riskLevel": "<LOW|MEDIUM|HIGH>",
@@ -176,7 +182,7 @@ Return ONLY valid JSON in exactly this structure (no markdown, no backticks). Ke
     {
       "severity": "<red|amber|green>",
       "title": "<short flag title>",
-      "detail": "<1-2 sentence specific explanation relevant to this supplier>"
+      "detail": "<1 sentence specific explanation relevant to this supplier>"
     }
   ],
   "recommendations": [
@@ -189,7 +195,7 @@ Return ONLY valid JSON in exactly this structure (no markdown, no backticks). Ke
   }
 }
 
-Produce 4-5 flags and 4 recommendations. Make them specific to the details given, not generic boilerplate.`;
+Produce exactly 4 flags and exactly 3 recommendations. Make them specific to the details given, not generic boilerplate.`;
 
   const enabledChecks = Object.entries(input.checksToRun)
     .filter(([, v]) => v)
@@ -208,7 +214,7 @@ Produce 4-5 flags and 4 recommendations. Make them specific to the details given
 CHECKS TO RUN (enabled):
 ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balanced report)"}\n`;
 
-  const payload = {
+  const basePayload = {
     contents: [
       {
         role: "user",
@@ -217,153 +223,183 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
     ],
     generationConfig: {
       temperature: 0.3,
-      // Encourage the API to return machine-readable JSON.
-      // (If the model still returns non-JSON, we fallback gracefully below.)
       responseMimeType: "application/json",
-      // Keep this moderate to reduce token-per-minute throttling on free tier.
+      maxOutputTokens: 1400,
+    },
+  } as const;
+
+  const compactSystem = `${system}
+
+IMPORTANT: Keep the JSON extremely compact. Use very short sentences.`;
+
+  const compactPayload = {
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: `${compactSystem}\n\n${prompt}` }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.2,
+      responseMimeType: "application/json",
+      // Intentionally smaller to force brevity and reduce truncation risk.
       maxOutputTokens: 900,
     },
-  };
+  } as const;
 
-  let res: Response | null = null;
-  const maxAttempts = 3;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    res = await fetch(`${endpoint}?key=${encodeURIComponent(apiKey)}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+  const apiKeySafe = apiKey as string;
 
-    if (res.ok) break;
-    // Retry on transient capacity/rate-limit errors.
-    if (res.status !== 429 && res.status !== 503) break;
+  async function fetchWithRetry(payload: unknown): Promise<Response> {
+    let res: Response;
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      res = await fetch(`${endpoint}?key=${encodeURIComponent(apiKeySafe)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-    if (attempt < maxAttempts) {
-      const retryAfterMs = parseRetryAfterMs(res);
-      const backoffMs =
-        retryAfterMs ??
-        // Exponential backoff with jitter, capped.
-        Math.min(
-          8000,
-          Math.round((400 * 2 ** (attempt - 1)) * (0.8 + Math.random() * 0.6)),
-        );
-      await sleep(backoffMs);
-      continue;
+      if (res.ok) return res;
+      // Retry on transient capacity/rate-limit errors.
+      if (res.status !== 429 && res.status !== 503) return res;
+
+      if (attempt < maxAttempts) {
+        const retryAfterMs = parseRetryAfterMs(res);
+        const backoffMs =
+          retryAfterMs ??
+          Math.min(
+            8000,
+            Math.round((400 * 2 ** (attempt - 1)) * (0.8 + Math.random() * 0.6)),
+          );
+        await sleep(backoffMs);
+      }
     }
+    // TypeScript: res is assigned in loop before possible return.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    return res!;
   }
 
-  if (!res) {
-    throw new Error("Gemini error: no response");
-  }
-
-  if (!res.ok) {
-    if (res.status === 429) {
-      return {
-        report: buildMockReport(input),
-        mocked: true,
-        mockedCode: "RATE_LIMITED",
-        mockedReason: "Gemini rate-limited the request (429).",
-      };
-    }
-    if (res.status === 503) {
-      return {
-        report: buildMockReport(input),
-        mocked: true,
-        mockedCode: "UNAVAILABLE",
-        mockedReason:
-          "Gemini is temporarily unavailable due to high demand (503).",
-      };
-    }
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gemini error: ${res.status} ${text}`.slice(0, 500));
-  }
-
-  const data = (await res.json()) as any;
-  const text =
-    data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).join("") ?? "";
-  const finishReason = data?.candidates?.[0]?.finishReason as unknown;
-  const safetyRatings = data?.candidates?.[0]?.safetyRatings as unknown;
-  const textSnippet =
-    typeof text === "string" && text.trim().length
-      ? text.trim().slice(0, 200)
-      : "";
-
-  let parsed: any;
-  try {
-    const cleaned = String(text)
-      .trim()
-      // Remove common markdown fences if they slip through.
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```$/i, "");
-    parsed = JSON.parse(cleaned);
-  } catch {
-    // Try extracting JSON from any surrounding text
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) {
-      if (finishReason === "MAX_TOKENS") {
+  async function parseResponseOrFallback(res: Response): Promise<GeminiResult> {
+    if (!res.ok) {
+      if (res.status === 429) {
         return {
           report: buildMockReport(input),
           mocked: true,
-          mockedCode: "TRUNCATED",
+          mockedCode: "RATE_LIMITED",
+          mockedReason: "Gemini rate-limited the request (429).",
+        };
+      }
+      if (res.status === 503) {
+        return {
+          report: buildMockReport(input),
+          mocked: true,
+          mockedCode: "UNAVAILABLE",
           mockedReason:
-            "Gemini response was truncated (MAX_TOKENS) before completing valid JSON.",
+            "Gemini is temporarily unavailable due to high demand (503).",
+        };
+      }
+      const text = await res.text().catch(() => "");
+      throw new Error(`Gemini error: ${res.status} ${text}`.slice(0, 500));
+    }
+
+    const data = (await res.json()) as any;
+    const text =
+      data?.candidates?.[0]?.content?.parts
+        ?.map((p: any) => p?.text)
+        .join("") ?? "";
+    const finishReason = data?.candidates?.[0]?.finishReason as unknown;
+    const safetyRatings = data?.candidates?.[0]?.safetyRatings as unknown;
+    const textSnippet =
+      typeof text === "string" && text.trim().length
+        ? text.trim().slice(0, 200)
+        : "";
+
+    let parsed: any;
+    try {
+      const cleaned = String(text)
+        .trim()
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/i, "");
+      parsed = JSON.parse(cleaned);
+    } catch {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) {
+        if (finishReason === "MAX_TOKENS") {
+          return {
+            report: buildMockReport(input),
+            mocked: true,
+            mockedCode: "TRUNCATED",
+            mockedReason:
+              "Gemini response was truncated (MAX_TOKENS) before completing valid JSON.",
+            geminiFinishReason:
+              typeof finishReason === "string" ? finishReason : undefined,
+            geminiSafetyRatings: safetyRatings,
+            geminiTextSnippet: textSnippet || undefined,
+          };
+        }
+        return {
+          report: buildMockReport(input),
+          mocked: true,
+          mockedCode: "NON_JSON",
+          mockedReason: "Gemini returned non-JSON output.",
           geminiFinishReason:
             typeof finishReason === "string" ? finishReason : undefined,
           geminiSafetyRatings: safetyRatings,
           geminiTextSnippet: textSnippet || undefined,
         };
       }
-      return {
-        report: buildMockReport(input),
-        mocked: true,
-        mockedCode: "NON_JSON",
-        mockedReason:
-          "Gemini returned non-JSON output (cannot parse). This can happen if the model adds extra text, returns an empty response, or safety-filters content.",
-        geminiFinishReason:
-          typeof finishReason === "string" ? finishReason : undefined,
-        geminiSafetyRatings: safetyRatings,
-        geminiTextSnippet: textSnippet || undefined,
-      };
+      try {
+        parsed = JSON.parse(match[0]);
+      } catch {
+        return {
+          report: buildMockReport(input),
+          mocked: true,
+          mockedCode: "INVALID_JSON",
+          mockedReason: "Gemini returned invalid JSON (malformed).",
+          geminiFinishReason:
+            typeof finishReason === "string" ? finishReason : undefined,
+          geminiSafetyRatings: safetyRatings,
+          geminiTextSnippet: textSnippet || undefined,
+        };
+      }
     }
-    try {
-      parsed = JSON.parse(match[0]);
-    } catch {
-      return {
-        report: buildMockReport(input),
-        mocked: true,
-        mockedCode: "INVALID_JSON",
-        mockedReason: "Gemini returned invalid JSON (malformed).",
-        geminiFinishReason:
-          typeof finishReason === "string" ? finishReason : undefined,
-        geminiSafetyRatings: safetyRatings,
-        geminiTextSnippet: textSnippet || undefined,
-      };
-    }
+
+    return {
+      mocked: false,
+      report: {
+        riskScore: clampScore(Number(parsed?.riskScore)),
+        riskLevel: normalizeRiskLevel(parsed?.riskLevel),
+        summary: typeof parsed?.summary === "string" ? parsed.summary : "",
+        flags: Array.isArray(parsed?.flags) ? parsed.flags : [],
+        recommendations: Array.isArray(parsed?.recommendations)
+          ? parsed.recommendations
+          : [],
+        verdict: {
+          class: normalizeVerdictClass(parsed?.verdict?.class),
+          headline:
+            typeof parsed?.verdict?.headline === "string"
+              ? parsed.verdict.headline
+              : "",
+          detail:
+            typeof parsed?.verdict?.detail === "string"
+              ? parsed.verdict.detail
+              : "",
+        },
+      },
+    };
   }
 
-  return {
-    mocked: false,
-    report: {
-      riskScore: clampScore(Number(parsed?.riskScore)),
-      riskLevel: normalizeRiskLevel(parsed?.riskLevel),
-      summary: typeof parsed?.summary === "string" ? parsed.summary : "",
-      flags: Array.isArray(parsed?.flags) ? parsed.flags : [],
-      recommendations: Array.isArray(parsed?.recommendations)
-        ? parsed.recommendations
-        : [],
-      verdict: {
-        class: normalizeVerdictClass(parsed?.verdict?.class),
-        headline:
-          typeof parsed?.verdict?.headline === "string"
-            ? parsed.verdict.headline
-            : "",
-        detail:
-          typeof parsed?.verdict?.detail === "string"
-            ? parsed.verdict.detail
-            : "",
-      },
-    },
-  };
+  // First attempt (normal). If it gets truncated/non-JSON, retry once compact.
+  const first = await parseResponseOrFallback(await fetchWithRetry(basePayload));
+  if (!first.mocked) return first;
+  if (first.mockedCode !== "TRUNCATED" && first.mockedCode !== "NON_JSON") {
+    return first;
+  }
+
+  const second = await parseResponseOrFallback(
+    await fetchWithRetry(compactPayload),
+  );
+  return second.mocked ? first : second;
 }
 
 async function analyzeWithUsagePolicy(input: SupplierInput): Promise<{
