@@ -224,7 +224,7 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
     generationConfig: {
       temperature: 0.3,
       responseMimeType: "application/json",
-      maxOutputTokens: 1400,
+      maxOutputTokens: 2200,
     },
   } as const;
 
@@ -243,7 +243,7 @@ IMPORTANT: Keep the JSON extremely compact. Use very short sentences.`;
       temperature: 0.2,
       responseMimeType: "application/json",
       // Intentionally smaller to force brevity and reduce truncation risk.
-      maxOutputTokens: 900,
+      maxOutputTokens: 1200,
     },
   } as const;
 
@@ -274,7 +274,7 @@ Schema (must match exactly):
       generationConfig: {
         temperature: 0,
         responseMimeType: "application/json",
-        maxOutputTokens: 700,
+        maxOutputTokens: 900,
       },
     } as const;
   }
