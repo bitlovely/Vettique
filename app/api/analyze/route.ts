@@ -224,7 +224,8 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
     generationConfig: {
       temperature: 0.3,
       responseMimeType: "application/json",
-      maxOutputTokens: 2200,
+      // Keep this moderate to reduce 429s on free tier.
+      maxOutputTokens: 1600,
     },
   } as const;
 
@@ -243,7 +244,7 @@ IMPORTANT: Keep the JSON extremely compact. Use very short sentences.`;
       temperature: 0.2,
       responseMimeType: "application/json",
       // Intentionally smaller to force brevity and reduce truncation risk.
-      maxOutputTokens: 1200,
+      maxOutputTokens: 1100,
     },
   } as const;
 
@@ -283,7 +284,7 @@ Schema (must match exactly):
 
   async function fetchWithRetry(payload: unknown): Promise<Response> {
     let res: Response;
-    const maxAttempts = 3;
+    const maxAttempts = 5;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       res = await fetch(`${endpoint}?key=${encodeURIComponent(apiKeySafe)}`, {
         method: "POST",
@@ -300,8 +301,8 @@ Schema (must match exactly):
         const backoffMs =
           retryAfterMs ??
           Math.min(
-            8000,
-            Math.round((400 * 2 ** (attempt - 1)) * (0.8 + Math.random() * 0.6)),
+            30000,
+            Math.round((800 * 2 ** (attempt - 1)) * (0.8 + Math.random() * 0.6)),
           );
         await sleep(backoffMs);
       }
