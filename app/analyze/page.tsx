@@ -30,6 +30,19 @@ export default async function AnalyzePage() {
     checksMonth === monthStart ? Number(profile?.checks_this_month ?? 0) : 0;
   const limit = 3;
 
+  const { data: reports } = userId
+    ? await supabase
+        .from("supplier_reports")
+        .select(
+          "id, created_at, company_name, country, category, risk_score, risk_level, summary, verdict_class",
+        )
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(25)
+    : { data: [] as any[] };
+
+  const savedCount = reports?.length ?? 0;
+
   return (
     <div className="container mx-auto px-4 py-10">
       <div className="max-w-3xl mx-auto">
@@ -66,9 +79,11 @@ export default async function AnalyzePage() {
             </div>
             <div className="rounded-xl border border-border p-5 bg-background">
               <p className="text-sm text-muted-foreground">Saved reports</p>
-              <p className="text-2xl font-extrabold text-foreground mt-1">—</p>
+              <p className="text-2xl font-extrabold text-foreground mt-1">
+                {savedCount}
+              </p>
               <p className="text-xs text-muted-foreground mt-1">
-                We’ll list report history once DB storage is wired.
+                Your most recent supplier checks.
               </p>
             </div>
             <div className="rounded-xl border border-border p-5 bg-background">
@@ -94,20 +109,53 @@ export default async function AnalyzePage() {
 
           <div className="mt-8 rounded-xl border border-border bg-muted/30 p-5">
             <h2 className="text-sm font-semibold text-foreground">
-              Next step: Supplier analysis form
+              Recent reports
             </h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Next we’ll build the analysis form at{" "}
-              <span className="font-mono">/analyze/new</span> and the report output page.
-            </p>
-            <div className="mt-4">
-              <a
-                href="/analyze/new"
-                className="inline-flex items-center justify-center rounded-md font-semibold h-10 px-4 gradient-brand text-brand-foreground hover:opacity-90 transition-opacity"
-              >
-                Create a new check
-              </a>
-            </div>
+            {savedCount ? (
+              <div className="mt-4 grid gap-3">
+                {reports!.map((r) => (
+                  <div
+                    key={r.id}
+                    className="rounded-xl border border-border bg-background p-4"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-foreground truncate">
+                          {r.company_name}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(r.created_at).toLocaleString()} • {r.country} •{" "}
+                          {r.category}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-xs text-muted-foreground">
+                            {r.risk_level} • {r.verdict_class}
+                          </p>
+                          <p className="text-sm font-bold text-foreground">
+                            {r.risk_score}/100
+                          </p>
+                        </div>
+                        <a
+                          href={`/analyze/report/${r.id}`}
+                          className="inline-flex items-center justify-center rounded-md font-semibold h-9 px-3 border border-border bg-background text-foreground hover:bg-muted/40 transition-colors"
+                        >
+                          View
+                        </a>
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-3">
+                      {r.summary}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground mt-2">
+                No reports yet. Run your first supplier check.
+              </p>
+            )}
           </div>
         </div>
       </div>
