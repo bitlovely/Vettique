@@ -121,8 +121,24 @@ async function callGemini(input: SupplierInput): Promise<RiskReport> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return buildMockReport(input);
 
-  const endpoint =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent";
+  const model =
+    process.env.GEMINI_MODEL?.trim() ||
+    // Default to a lighter model to avoid dev-time 429s on free tier.
+    "gemini-2.5-flash";
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+  async function sleep(ms: number) {
+    await new Promise((r) => setTimeout(r, ms));
+  }
+
+  function parseRetryAfterMs(res: Response): number | null {
+    const v = res.headers.get("retry-after");
+    if (!v) return null;
+    // retry-after can be seconds or an HTTP date. We handle seconds.
+    const seconds = Number(v);
+    if (Number.isFinite(seconds) && seconds > 0) return Math.round(seconds * 1000);
+    return null;
+  }
 
   const system = `You are a senior import/export risk analyst with 15 years of experience vetting overseas suppliers for small e-commerce and Amazon sellers. You are direct, specific, and never sugarcoat risks.
 
@@ -169,28 +185,55 @@ Produce 4-6 flags and 4-5 recommendations. Make them specific to the details giv
 CHECKS TO RUN (enabled):
 ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balanced report)"}\n`;
 
-  const res = await fetch(`${endpoint}?key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: `${system}\n\n${prompt}` }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 900,
+  const payload = {
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: `${system}\n\n${prompt}` }],
       },
-    }),
-  });
+    ],
+    generationConfig: {
+      temperature: 0.3,
+      // Keep this moderate to reduce token-per-minute throttling on free tier.
+      maxOutputTokens: 650,
+    },
+  };
+
+  let res: Response | null = null;
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    res = await fetch(`${endpoint}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok) break;
+    if (res.status !== 429) break;
+
+    if (attempt < maxAttempts) {
+      const retryAfterMs = parseRetryAfterMs(res);
+      const backoffMs =
+        retryAfterMs ??
+        // Exponential backoff with jitter, capped.
+        Math.min(
+          8000,
+          Math.round((400 * 2 ** (attempt - 1)) * (0.8 + Math.random() * 0.6)),
+        );
+      await sleep(backoffMs);
+      continue;
+    }
+  }
+
+  if (!res) {
+    throw new Error("Gemini error: no response");
+  }
 
   if (!res.ok) {
     if (res.status === 429) {
       return buildMockReport(
         input,
-        "Gemini quota exceeded — using fallback",
+        "Gemini is rate-limiting (429) — using fallback",
       );
     }
     const text = await res.text().catch(() => "");
