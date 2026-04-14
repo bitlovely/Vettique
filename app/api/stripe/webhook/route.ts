@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe/server";
 
 export const runtime = "nodejs";
@@ -10,7 +10,7 @@ async function upsertProfilePlan(params: {
   stripeCustomerId?: string | null;
   stripeSubscriptionId?: string | null;
 }) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   await supabase
     .from("profiles")
     .upsert(
@@ -72,7 +72,7 @@ export async function POST(req: Request) {
 
         // Find userId via profiles.stripe_customer_id
         if (customerId) {
-          const supabase = await createClient();
+          const supabase = createAdminClient();
           const { data } = await supabase
             .from("profiles")
             .select("user_id")
