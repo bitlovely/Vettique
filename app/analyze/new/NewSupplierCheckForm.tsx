@@ -39,6 +39,14 @@ export default function NewSupplierCheckForm() {
   const [report, setReport] = useState<RiskReport | null>(null);
   const [upgradeUrl, setUpgradeUrl] = useState<string | null>(null);
 
+  const fieldBase =
+    "flex w-full rounded-xl border border-border/70 bg-background/90 px-3.5 py-2 text-sm text-foreground shadow-sm transition-colors " +
+    "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 focus-visible:border-brand " +
+    "focus-visible:ring-offset-2 ring-offset-background";
+  const inputClass = `${fieldBase} h-11`;
+  const selectClass = `${fieldBase} h-11 pr-10`;
+  const textareaClass = `${fieldBase} min-h-[112px]`;
+
   const [form, setForm] = useState<SupplierInput>({
     companyName: "",
     countryRegion: "",
@@ -126,8 +134,9 @@ export default function NewSupplierCheckForm() {
 
   return (
     <div className="grid gap-6">
+      {/* "Cute selector" inspired style */}
       <form onSubmit={onSubmit} className="grid gap-4">
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-foreground" htmlFor="companyName">
               Company Name
@@ -136,7 +145,7 @@ export default function NewSupplierCheckForm() {
               id="companyName"
               value={form.companyName}
               onChange={(e) => setForm((f) => ({ ...f, companyName: e.target.value }))}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+              className={inputClass}
               placeholder="Example Trading Co., Ltd"
               required
             />
@@ -150,7 +159,7 @@ export default function NewSupplierCheckForm() {
               id="countryRegion"
               value={form.countryRegion}
               onChange={(e) => setForm((f) => ({ ...f, countryRegion: e.target.value }))}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+              className={selectClass}
               required
             >
               <option value="" disabled>
@@ -176,7 +185,7 @@ export default function NewSupplierCheckForm() {
               id="platformFoundOn"
               value={form.platformFoundOn ?? ""}
               onChange={(e) => setForm((f) => ({ ...f, platformFoundOn: e.target.value }))}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+              className={selectClass}
             >
               <option value="">Select a platform (optional)</option>
               <option value="Alibaba">Alibaba</option>
@@ -197,14 +206,12 @@ export default function NewSupplierCheckForm() {
               id="productCategory"
               value={form.productCategory}
               onChange={(e) => setForm((f) => ({ ...f, productCategory: e.target.value }))}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+              className={inputClass}
               placeholder="Home & Kitchen"
               required
             />
           </div>
-        </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-foreground" htmlFor="yearsOnPlatform">
               Years on Platform
@@ -213,7 +220,7 @@ export default function NewSupplierCheckForm() {
               id="yearsOnPlatform"
               value={form.yearsOnPlatform ?? ""}
               onChange={(e) => setForm((f) => ({ ...f, yearsOnPlatform: e.target.value }))}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+              className={selectClass}
             >
               <option value="">Select (optional)</option>
               <option value="Under 1 year">Under 1 year</option>
@@ -233,7 +240,7 @@ export default function NewSupplierCheckForm() {
               id="orderSizeUnits"
               value={form.orderSizeUnits ?? ""}
               onChange={(e) => setForm((f) => ({ ...f, orderSizeUnits: e.target.value }))}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+              className={selectClass}
             >
               <option value="">Select (optional)</option>
               <option value="1–50">1–50</option>
@@ -254,7 +261,7 @@ export default function NewSupplierCheckForm() {
             id="quoteReceived"
             value={form.quoteReceived ?? ""}
             onChange={(e) => setForm((f) => ({ ...f, quoteReceived: e.target.value }))}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+            className={inputClass}
             placeholder="e.g., $1.25/unit + $980 shipping, lead time 15 days"
           />
         </div>
@@ -267,7 +274,7 @@ export default function NewSupplierCheckForm() {
             id="observations"
             value={form.observations ?? ""}
             onChange={(e) => setForm((f) => ({ ...f, observations: e.target.value }))}
-            className="flex min-h-[96px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+            className={textareaClass}
             placeholder="Any red flags you noticed, links, screenshots, unusual requests, etc."
           />
         </div>

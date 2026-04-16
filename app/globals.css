@@ -136,6 +136,30 @@ h6 {
   animation: vettique-fade-up 450ms ease-out both;
 }
 
+.scrollbar-stable {
+  scrollbar-gutter: stable both-edges;
+}
+
+/* Make scrollbars visible (best-effort). */
+@supports selector(::-webkit-scrollbar) {
+  .scrollbar-visible::-webkit-scrollbar {
+    width: 10px;
+  }
+  .scrollbar-visible::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-visible::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.55);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .scrollbar-visible::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.8);
+    background-clip: content-box;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .vettique-blob,
   .vettique-fade-up {

@@ -86,6 +86,18 @@ export default async function AnalyzePage({
     : { data: [] as any[] };
 
   const savedCount = reports?.length ?? 0;
+  const remaining = Math.max(0, limit - checksThisMonth);
+
+  const scores = (reports ?? [])
+    .map((r) => Number((r as any).risk_score))
+    .filter((n) => Number.isFinite(n));
+  const avgScore =
+    scores.length > 0
+      ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+      : null;
+  const highRiskCount = (reports ?? []).filter(
+    (r) => String((r as any).risk_level ?? "").toUpperCase() === "HIGH",
+  ).length;
 
   function riskBadge(level: string) {
     const l = String(level || "").toUpperCase();
@@ -98,188 +110,237 @@ export default async function AnalyzePage({
   }
 
   return (
-    <div className="relative">
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="vettique-blob absolute -top-24 -left-20 h-72 w-72 rounded-full bg-sky-400/40 dark:bg-sky-500/20" />
-        <div className="vettique-blob absolute top-20 -right-28 h-80 w-80 rounded-full bg-fuchsia-400/30 dark:bg-fuchsia-500/18 [animation-delay:1.2s]" />
-        <div className="vettique-blob absolute bottom-[-6rem] left-1/3 h-96 w-96 rounded-full bg-emerald-400/25 dark:bg-emerald-500/14 [animation-delay:2.4s]" />
-      </div>
-
-      <div className="container mx-auto px-4 py-10">
-        <div className="max-w-6xl mx-auto">
-          <div className="vettique-fade-up rounded-2xl border border-border/60 bg-card/70 dark:bg-card/55 backdrop-blur-xl shadow-[0_20px_80px_-30px_rgba(0,0,0,0.25)] dark:shadow-[0_30px_90px_-40px_rgba(0,0,0,0.55)] overflow-hidden">
-            <div className="p-6 sm:p-8 border-b border-border/60 bg-gradient-to-br from-muted/40 to-transparent dark:from-muted/25 dark:to-transparent">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+    <div className="h-full w-full px-4 sm:px-6 lg:px-10 py-6">
+      <div className="h-full w-full flex flex-col gap-6">
+        <div className="vettique-fade-up rounded-3xl border border-primary-foreground/10 bg-card/90 backdrop-blur-xl shadow-[0_28px_110px_-44px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col flex-1 min-h-0">
+          {/* Summary */}
+          <div className="p-7 lg:p-8 border-b border-border/60 shrink-0">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
               <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">Dashboard</p>
-                <h1 className="text-2xl font-bold text-foreground mt-2">
-                  Supplier reports
-                </h1>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Run checks, review risk, and keep a report history.
+                <p className="text-xs font-semibold text-muted-foreground tracking-wide">
+                  SUMMARY
                 </p>
+                <h1 className="text-2xl lg:text-[30px] font-bold text-foreground mt-2 leading-tight">
+                  Dashboard
+                </h1>
               </div>
-
-              <div className="flex w-full md:w-auto flex-col sm:flex-row gap-3 sm:items-center">
+              <div className="flex w-full lg:w-auto">
                 <a
                   href="/analyze/new"
-                  className="inline-flex w-full sm:w-auto items-center justify-center rounded-md font-semibold h-10 px-4 gradient-brand text-brand-foreground hover:opacity-90 transition-opacity shadow-sm hover:shadow-md active:scale-[0.99] motion-reduce:transform-none"
+                  className="inline-flex w-full lg:w-auto items-center justify-center rounded-xl font-semibold h-11 px-6 gradient-brand text-brand-foreground hover:opacity-95 transition-opacity shadow-sm hover:shadow-md active:translate-y-px motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                 >
                   New check
                 </a>
               </div>
             </div>
+
+            <div className="mt-6 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-2xl p-6 text-white shadow-lg shadow-rose-500/10 bg-gradient-to-br from-rose-500 to-orange-400">
+                <p className="text-xs font-semibold tracking-wide text-white/80">
+                  CHECKS REMAINING
+                </p>
+                <p className="text-4xl font-extrabold mt-3 tabular-nums">
+                  {plan === "pro" ? "∞" : remaining.toString().padStart(2, "0")}
+                </p>
+                <p className="text-sm text-white/80 mt-2">
+                  {plan === "pro"
+                    ? "Pro plan — unlimited checks."
+                    : `${checksThisMonth}/${limit} used this month`}
+                </p>
+              </div>
+
+              <div className="rounded-2xl p-6 text-white shadow-lg shadow-fuchsia-500/10 bg-gradient-to-br from-indigo-500 to-fuchsia-500">
+                <p className="text-xs font-semibold tracking-wide text-white/80">
+                  REPORTS SAVED
+                </p>
+                <p className="text-4xl font-extrabold mt-3 tabular-nums">
+                  {savedCount.toString().padStart(2, "0")}
+                </p>
+                <p className="text-sm text-white/80 mt-2">Since last check</p>
+              </div>
+
+              <div className="rounded-2xl p-6 text-white shadow-lg shadow-emerald-500/10 bg-gradient-to-br from-emerald-500 to-teal-600">
+                <p className="text-xs font-semibold tracking-wide text-white/80">
+                  AVG RISK SCORE
+                </p>
+                <p className="text-4xl font-extrabold mt-3 tabular-nums">
+                  {avgScore === null ? "—" : `${avgScore}`}
+                </p>
+                <p className="text-sm text-white/80 mt-2">
+                  {scores.length
+                    ? `Across ${scores.length} reports • ${highRiskCount} high risk`
+                    : "Run a check to see stats"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl p-6 text-white shadow-lg shadow-sky-500/10 bg-gradient-to-br from-sky-500 to-indigo-600">
+                <p className="text-xs font-semibold tracking-wide text-white/80">
+                  BILLING
+                </p>
+                <p className="text-3xl font-extrabold mt-3">
+                  {plan === "pro" ? "Pro" : "Free"}
+                </p>
+                <div className="mt-4">
+                  <BillingActions
+                    plan={plan}
+                    checksThisMonth={checksThisMonth}
+                    limit={limit}
+                    variant="gradient"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="p-6 sm:p-8">
-            <div className="grid gap-6 lg:grid-cols-12">
-              <div className="lg:col-span-8">
-                <div className="flex items-end justify-between gap-4">
-                  <div>
-                    <h2 className="text-sm font-semibold text-foreground">
-                      Recent reports
-                    </h2>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Your latest supplier checks.
-                    </p>
-                  </div>
+          {/* Content */}
+          <div className="flex-1 min-h-0 p-7 lg:p-8 grid gap-6 lg:grid-cols-12">
+            <div className="lg:col-span-12 rounded-2xl border border-border bg-background/90 flex flex-col min-h-0">
+              <div className="px-6 py-5 border-b border-border">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="text-sm font-semibold text-foreground">
+                    Recent reports
+                  </h2>
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-lg h-9 w-9 border border-border bg-background hover:bg-muted/30 transition-colors"
+                    aria-label="More"
+                  >
+                    <span className="text-muted-foreground text-lg leading-none">
+                      …
+                    </span>
+                  </button>
                 </div>
+              </div>
 
-                <div className="mt-4 border border-border/70 rounded-xl overflow-hidden bg-background/60 dark:bg-background/40 backdrop-blur">
-                  {savedCount ? (
+              {savedCount ? (
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  {/* Mobile list */}
+                  <div className="h-full overflow-y-auto lg:hidden">
                     <div className="divide-y divide-border">
-                      <div className="hidden sm:grid grid-cols-12 gap-4 px-4 py-3 bg-muted/25 dark:bg-muted/20 text-xs font-semibold text-muted-foreground">
-                        <div className="col-span-6">Supplier</div>
+                      {reports!.map((r) => (
+                        <a
+                          key={r.id}
+                          href={`/analyze/report/${r.id}`}
+                          className="block px-6 py-4 hover:bg-muted/10 transition-colors"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-foreground truncate">
+                                {r.company_name}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1 truncate">
+                                {r.country} • {r.category}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-2">
+                                {new Date(r.created_at).toLocaleDateString()} • #
+                                {String(r.id).slice(0, 6)}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <span
+                                className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${riskBadge(
+                                  r.risk_level,
+                                )}`}
+                              >
+                                {r.risk_level}
+                              </span>
+                              <div className="mt-2 inline-flex items-center justify-center min-w-[56px] rounded-lg bg-muted/20 px-3 py-1 text-sm font-semibold text-foreground tabular-nums">
+                                {r.risk_score}
+                              </div>
+                            </div>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Desktop table */}
+                  <div className="hidden lg:block h-full overflow-x-auto overflow-y-auto scrollbar-stable scrollbar-visible">
+                    <div className="min-w-[920px]">
+                      <div className="grid grid-cols-12 gap-4 px-6 py-3 text-xs font-semibold text-muted-foreground bg-muted/10 sticky top-0 z-10">
+                        <div className="col-span-3">Tracking</div>
+                        <div className="col-span-4">Supplier</div>
                         <div className="col-span-2">Risk</div>
                         <div className="col-span-2 text-right">Score</div>
-                        <div className="col-span-2 text-right">Action</div>
+                        <div className="col-span-1 text-right">View</div>
                       </div>
                       {reports!.map((r) => (
                         <div
                           key={r.id}
-                          className="px-4 py-4 hover:bg-muted/20 dark:hover:bg-muted/15 transition-colors"
+                          className="px-6 py-4 border-t border-border hover:bg-muted/10 transition-colors"
                         >
-                          <div className="grid grid-cols-1 sm:grid-cols-12 sm:gap-4 items-start">
-                            <div className="sm:col-span-6 min-w-0">
+                          <div className="grid grid-cols-12 gap-4 items-center">
+                            <div className="col-span-3">
+                              <p className="text-sm font-semibold text-foreground tabular-nums">
+                                #{String(r.id).slice(0, 6)}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {new Date(r.created_at).toLocaleDateString()}
+                              </p>
+                            </div>
+                            <div className="col-span-4 min-w-0">
                               <a
                                 href={`/analyze/report/${r.id}`}
                                 className="font-semibold text-foreground hover:underline block truncate"
                               >
                                 {r.company_name}
                               </a>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {new Date(r.created_at).toLocaleString()} •{" "}
+                              <p className="text-xs text-muted-foreground mt-1 truncate">
                                 {r.country} • {r.category}
-                              </p>
-                              <p className="text-sm text-muted-foreground mt-3 line-clamp-2">
-                                {r.summary}
                               </p>
                             </div>
 
-                            <div className="sm:col-span-2 mt-3 sm:mt-0">
+                            <div className="col-span-2">
                               <span
-                                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${riskBadge(
+                                className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${riskBadge(
                                   r.risk_level,
                                 )}`}
                               >
                                 {r.risk_level}
                               </span>
-                              <p className="text-xs text-muted-foreground mt-2">
+                              <p className="text-xs text-muted-foreground mt-2 capitalize">
                                 {r.verdict_class}
                               </p>
                             </div>
 
-                            <div className="sm:col-span-2 mt-3 sm:mt-0 sm:text-right">
-                              <p className="text-sm font-bold text-foreground">
-                                {r.risk_score}/100
-                              </p>
+                            <div className="col-span-2 text-right">
+                              <span className="inline-flex items-center justify-center min-w-[56px] rounded-lg bg-muted/20 px-3 py-1 text-sm font-semibold text-foreground tabular-nums">
+                                {r.risk_score}
+                              </span>
                             </div>
 
-                            <div className="sm:col-span-2 mt-4 sm:mt-0 sm:text-right">
+                            <div className="col-span-1 flex justify-end">
                               <a
                                 href={`/analyze/report/${r.id}`}
-                                className="inline-flex w-full sm:w-auto items-center justify-center rounded-md font-semibold h-10 sm:h-9 px-4 sm:px-3 border border-border/70 bg-background/70 dark:bg-background/40 text-foreground hover:bg-muted/40 dark:hover:bg-muted/20 transition-colors whitespace-nowrap shadow-sm hover:shadow-md active:scale-[0.99] motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                                className="inline-flex items-center justify-center rounded-lg h-9 w-9 border border-border bg-background hover:bg-muted/30 transition-colors shadow-sm"
+                                aria-label="View report"
                               >
-                                View report
+                                <span className="text-foreground text-sm">↗</span>
                               </a>
                             </div>
                           </div>
                         </div>
                       ))}
                     </div>
-                  ) : (
-                    <div className="p-6">
-                      <p className="text-sm text-muted-foreground">
-                        No reports yet. Run your first supplier check.
-                      </p>
-                      <div className="mt-4">
-                        <a
-                          href="/analyze/new"
-                          className="inline-flex w-full sm:w-auto items-center justify-center rounded-md font-semibold h-10 px-4 gradient-brand text-brand-foreground hover:opacity-90 transition-opacity"
-                        >
-                          New check
-                        </a>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="lg:col-span-4">
-                <div className="space-y-6 lg:sticky lg:top-6">
-                  <div className="border border-border/70 rounded-xl overflow-hidden bg-background/60 dark:bg-background/40 backdrop-blur">
-                    <div className="px-5 py-4 bg-muted/25 dark:bg-muted/20 border-b border-border/60">
-                      <h2 className="text-sm font-semibold text-foreground">
-                        Overview
-                      </h2>
-                    </div>
-                    <div className="p-5 space-y-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm text-muted-foreground">Checks</p>
-                        <p className="text-sm font-semibold text-foreground">
-                          {plan === "pro"
-                            ? "Unlimited"
-                            : `${checksThisMonth}/${limit}`}
-                        </p>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm text-muted-foreground">Saved reports</p>
-                        <p className="text-sm font-semibold text-foreground">
-                          {savedCount}
-                        </p>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm text-muted-foreground">Plan</p>
-                        <p className="text-sm font-semibold text-foreground">
-                          {plan === "pro" ? "Pro" : "Free"}
-                        </p>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {plan === "pro"
-                          ? "No monthly limit on Pro."
-                          : "Limit resets on the 1st."}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="border border-border/70 rounded-xl overflow-hidden bg-background/60 dark:bg-background/40 backdrop-blur">
-                    <div className="px-5 py-4 bg-muted/25 dark:bg-muted/20 border-b border-border/60">
-                      <h2 className="text-sm font-semibold text-foreground">
-                        Billing
-                      </h2>
-                    </div>
-                    <div className="p-5">
-                      <BillingActions
-                        plan={plan}
-                        checksThisMonth={checksThisMonth}
-                        limit={limit}
-                      />
-                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="p-6">
+                  <p className="text-sm text-muted-foreground">
+                    No reports yet. Run your first supplier check.
+                  </p>
+                  <div className="mt-4">
+                    <a
+                      href="/analyze/new"
+                      className="inline-flex w-full sm:w-auto items-center justify-center rounded-xl font-semibold h-11 px-6 gradient-brand text-brand-foreground hover:opacity-90 transition-opacity"
+                    >
+                      New check
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
+
           </div>
         </div>
       </div>

@@ -94,28 +94,34 @@ const features = [
     title: "AI Risk Analysis",
     description:
       "Gemini-powered intelligence evaluates supplier legitimacy across 6 key dimensions.",
+    outcome: "Outcome subtitle coming soon.",
   },
   {
     title: "Red / Amber / Green Flags",
     description:
       "Clear visual flags for payment terms, location risk, platform history, and more.",
+    outcome: "Outcome subtitle coming soon.",
   },
   {
     title: "0–100 Risk Score",
     description: "A single composite score so you know exactly where a supplier stands.",
+    outcome: "Outcome subtitle coming soon.",
   },
   {
     title: "Global Coverage",
     description: "Assess suppliers from any country, across Amazon, Alibaba, 1688, and more.",
+    outcome: "Outcome subtitle coming soon.",
   },
   {
     title: "Wire Decision Verdict",
     description:
       "Proceed / Caution / Do Not Wire — actionable guidance, not vague analysis.",
+    outcome: "Outcome subtitle coming soon.",
   },
   {
     title: "Saved Reports",
     description: "Every analysis is stored in your account for reference and comparison.",
+    outcome: "Outcome subtitle coming soon.",
   },
 ] as const;
 
@@ -184,9 +190,9 @@ export default function Home() {
             </h1>
 
             <p className="text-lg sm:text-xl text-primary-foreground/70 mb-10 max-w-2xl mx-auto leading-relaxed">
-              Enter supplier details. Get an instant AI risk report with a 0–100 score,
-              red/amber/green flags, and a clear verdict — Proceed, Caution, or Do Not
-              Wire.
+              Every year, thousands of Amazon and Shopify sellers wire deposits to
+              suppliers they&apos;ve never met and never hear back. Vettique checks them
+              before you send a cent.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -203,6 +209,30 @@ export default function Home() {
               >
                 See How It Works
               </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-background py-6 border-b border-border">
+        <div className="container mx-auto px-4">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 rounded-2xl border border-border bg-card px-6 py-4 shadow-sm">
+            <p className="text-sm sm:text-base font-semibold text-foreground">
+              Trusted by 500+ Amazon and Shopify sellers
+            </p>
+            <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+              <span className="inline-flex items-center gap-2">
+                <span className="text-amber-500">★★★★★</span>
+                <span>5.0 seller rating</span>
+              </span>
+              <span className="inline-flex items-center gap-2">
+                <span className="text-amber-500">★★★★★</span>
+                <span>5.0 sourcing rating</span>
+              </span>
+              <span className="inline-flex items-center gap-2">
+                <span className="text-amber-500">★★★★★</span>
+                <span>5.0 trust rating</span>
+              </span>
             </div>
           </div>
         </div>
@@ -234,6 +264,38 @@ export default function Home() {
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   {f.description}
                 </p>
+                <p className="text-sm font-medium text-foreground/80 mt-3">
+                  {f.outcome}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="py-20 lg:py-24 bg-card">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl lg:text-4xl font-bold text-foreground mb-4">
+              How It Works
+            </h2>
+            <p className="text-muted-foreground text-lg max-w-xl mx-auto">
+              Three steps from supplier details to a go / no-go decision.
+            </p>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-3 max-w-5xl mx-auto">
+            {[
+              ["01", "Enter supplier details", "Add the supplier, category, platform, and any red flags you noticed."],
+              ["02", "AI analyses 6 risk dimensions", "Vettique reviews legitimacy, payment risk, location risk, platform signals, category risk, and communication signals."],
+              ["03", "Get your report and decide", "Review the score, flags, recommendations, and verdict before wiring any money."],
+            ].map(([num, title, body]) => (
+              <div key={num} className="rounded-2xl border border-border bg-background p-6 shadow-sm">
+                <div className="inline-flex h-10 w-10 items-center justify-center rounded-full gradient-brand text-brand-foreground text-sm font-bold">
+                  {num}
+                </div>
+                <h3 className="text-lg font-semibold text-foreground mt-4">{title}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed mt-2">{body}</p>
               </div>
             ))}
           </div>
@@ -286,6 +348,12 @@ export default function Home() {
                 </ul>
 
                 <PricingCTA planName={p.name as "Free" | "Pro"} />
+                {p.name === "Pro" ? (
+                  <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
+                    Cancel anytime. No contracts. If Vettique doesn&apos;t catch a red
+                    flag you missed, we&apos;ll refund your first month.
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>
