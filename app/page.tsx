@@ -94,34 +94,39 @@ const features = [
     title: "AI Risk Analysis",
     description:
       "Gemini-powered intelligence evaluates supplier legitimacy across 6 key dimensions.",
-    outcome: "Outcome subtitle coming soon.",
+    outcome:
+      "Structured analysis across payment terms, credentials, pricing, communication, and customs signals",
   },
   {
     title: "Red / Amber / Green Flags",
     description:
       "Clear visual flags for payment terms, location risk, platform history, and more.",
-    outcome: "Outcome subtitle coming soon.",
+    outcome:
+      "Instantly see which signals are dangerous, worth watching, or confirmed safe",
   },
   {
     title: "0–100 Risk Score",
     description: "A single composite score so you know exactly where a supplier stands.",
-    outcome: "Outcome subtitle coming soon.",
+    outcome:
+      "Higher score means higher risk — know at a glance whether to proceed or walk away",
   },
   {
     title: "Global Coverage",
     description: "Assess suppliers from any country, across Amazon, Alibaba, 1688, and more.",
-    outcome: "Outcome subtitle coming soon.",
+    outcome:
+      "Works for suppliers in China, India, Vietnam, Bangladesh, Turkey, Mexico and more",
   },
   {
     title: "Wire Decision Verdict",
     description:
       "Proceed / Caution / Do Not Wire — actionable guidance, not vague analysis.",
-    outcome: "Outcome subtitle coming soon.",
+    outcome: "Three clear outcomes — Proceed, Proceed with Caution, or Do Not Wire",
   },
   {
     title: "Saved Reports",
     description: "Every analysis is stored in your account for reference and comparison.",
-    outcome: "Outcome subtitle coming soon.",
+    outcome:
+      "Every report saved to your account — compare suppliers and build your verified vendor list",
   },
 ] as const;
 
@@ -216,23 +221,20 @@ export default function Home() {
 
       <section className="bg-background py-6 border-b border-border">
         <div className="container mx-auto px-4">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 rounded-2xl border border-border bg-card px-6 py-4 shadow-sm">
-            <p className="text-sm sm:text-base font-semibold text-foreground">
-              Trusted by 500+ Amazon and Shopify sellers
-            </p>
-            <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-              <span className="inline-flex items-center gap-2">
-                <span className="text-amber-500">★★★★★</span>
-                <span>5.0 seller rating</span>
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <span className="text-amber-500">★★★★★</span>
-                <span>5.0 sourcing rating</span>
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <span className="text-amber-500">★★★★★</span>
-                <span>5.0 trust rating</span>
-              </span>
+          <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-r from-brand/10 via-background to-transparent px-6 py-5 shadow-sm">
+            <div className="pointer-events-none absolute inset-0 opacity-60 dark:opacity-40">
+              <div className="absolute -left-24 -top-24 h-48 w-48 rounded-full bg-brand/25 blur-3xl" />
+              <div className="absolute -right-24 -bottom-24 h-48 w-48 rounded-full bg-indigo-500/15 blur-3xl" />
+            </div>
+
+            <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <p className="text-sm sm:text-base font-semibold text-foreground">
+                Built for Amazon and Shopify sellers
+              </p>
+              <div className="hidden md:block h-5 w-px bg-border/60" />
+              <p className="text-sm text-foreground/70 md:text-right">
+                Vet suppliers fast. Reduce deposit risk. Decide with confidence
+              </p>
             </div>
           </div>
         </div>
@@ -348,12 +350,6 @@ export default function Home() {
                 </ul>
 
                 <PricingCTA planName={p.name as "Free" | "Pro"} />
-                {p.name === "Pro" ? (
-                  <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
-                    Cancel anytime. No contracts. If Vettique doesn&apos;t catch a red
-                    flag you missed, we&apos;ll refund your first month.
-                  </p>
-                ) : null}
               </div>
             ))}
           </div>
