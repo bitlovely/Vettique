@@ -9,6 +9,8 @@ export default function BillingActions(props: {
   variant?: "default" | "gradient";
   proAccessUntil?: string;
   proWillCancelAtPeriodEnd?: boolean;
+  proDaysRemaining?: number;
+  proSubscriptionStatus?: string;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -91,14 +93,26 @@ export default function BillingActions(props: {
             Plan: <span className={`font-semibold ${textStrong}`}>Pro</span> (unlimited
             checks)
           </p>
-          {props.proWillCancelAtPeriodEnd && props.proAccessUntil ? (
+          {props.proAccessUntil ? (
             <p className={`text-xs ${textMuted}`}>
-              Pro access until{" "}
+              Period ends{" "}
               <span className={`font-semibold ${textStrong}`}>
                 {new Date(props.proAccessUntil).toLocaleDateString()}
               </span>
-              . Then you’ll be on Free.
+              {typeof props.proDaysRemaining === "number" ? (
+                <> • {props.proDaysRemaining} days remaining</>
+              ) : null}
+              {props.proWillCancelAtPeriodEnd ? (
+                <> • Canceled (downgrades to Free)</>
+              ) : props.proSubscriptionStatus &&
+                ["canceled", "unpaid", "incomplete_expired"].includes(
+                  String(props.proSubscriptionStatus),
+                ) ? (
+                <> • Canceled</>
+              ) : null}
             </p>
+          ) : props.proWillCancelAtPeriodEnd ? (
+            <p className={`text-xs ${textMuted}`}>Canceled (downgrades to Free)</p>
           ) : null}
           <button
             type="button"
