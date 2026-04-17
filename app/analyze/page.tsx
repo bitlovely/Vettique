@@ -385,6 +385,18 @@ export default async function AnalyzePage({
     return "bg-sky-500/10 text-sky-800 dark:text-sky-300 border-sky-500/20";
   }
 
+  const billingStatusLabel = (() => {
+    if (effectivePlan !== "pro") return "Free";
+    const s = String(proSubscriptionStatus ?? "").toLowerCase();
+    if (["canceled", "unpaid", "incomplete_expired"].includes(s)) return "Canceled";
+    if (proWillCancelAtPeriodEnd) return "Cancel scheduled";
+    // Some Stripe configurations set `cancel_at` without `cancel_at_period_end`.
+    // Treat a future cancel_at timestamp as "scheduled to cancel".
+    if (proCancelAt && proCancelAt.getTime() > Date.now()) return "Cancel scheduled";
+    if (s) return s.charAt(0).toUpperCase() + s.slice(1);
+    return "Active";
+  })();
+
   return (
     <div className="h-full w-full px-4 sm:px-6 lg:px-10 py-6">
       <div className="h-full w-full flex flex-col gap-6">
@@ -469,8 +481,18 @@ export default async function AnalyzePage({
                         {typeof proDaysRemaining === "number" ? (
                           <> • {proDaysRemaining} days remaining</>
                         ) : null}
+                        {" "}
+                        • Status:{" "}
+                        <span className="font-semibold text-white">
+                          {billingStatusLabel}
+                        </span>
                         {proWillCancelAtPeriodEnd ? (
-                          <> • Canceled (downgrades to Free)</>
+                          <> • Cancel scheduled (downgrades to Free)</>
+                        ) : proCancelAt && proCancelAt.getTime() > Date.now() ? (
+                          <>
+                            {" "}
+                            • Cancel scheduled on {proCancelAt.toLocaleDateString()}
+                          </>
                         ) : proSubscriptionStatus &&
                           ["canceled", "unpaid", "incomplete_expired"].includes(
                             String(proSubscriptionStatus),
@@ -480,7 +502,7 @@ export default async function AnalyzePage({
                       </>
                     ) : proWillCancelAtPeriodEnd ? (
                       <>
-                        Canceled (downgrades to Free
+                        Cancel scheduled (downgrades to Free
                         {proCancelAt ? (
                           <> on {proCancelAt.toLocaleDateString()}</>
                         ) : null}
@@ -489,7 +511,12 @@ export default async function AnalyzePage({
                     ) : proDetailsError ? (
                       <>Unable to load billing period • {proDetailsError}</>
                     ) : (
-                      <>Loading billing period…</>
+                      <>
+                        Status:{" "}
+                        <span className="font-semibold text-white">
+                          {billingStatusLabel}
+                        </span>
+                      </>
                     )}
                   </p>
                 ) : (
@@ -509,6 +536,7 @@ export default async function AnalyzePage({
                     proWillCancelAtPeriodEnd={proWillCancelAtPeriodEnd}
                     proDaysRemaining={proDaysRemaining ?? undefined}
                     proSubscriptionStatus={proSubscriptionStatus ?? undefined}
+                    showProPeriodDetails={false}
                   />
                 </div>
               </div>

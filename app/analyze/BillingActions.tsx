@@ -11,6 +11,7 @@ export default function BillingActions(props: {
   proWillCancelAtPeriodEnd?: boolean;
   proDaysRemaining?: number;
   proSubscriptionStatus?: string;
+  showProPeriodDetails?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +52,7 @@ export default function BillingActions(props: {
 
   const remaining = Math.max(0, props.limit - props.checksThisMonth);
   const isGradient = props.variant === "gradient";
+  const showProPeriodDetails = props.showProPeriodDetails ?? true;
 
   const textMuted = isGradient ? "text-white/80" : "text-muted-foreground";
   const textStrong = isGradient ? "text-white" : "text-foreground";
@@ -93,7 +95,7 @@ export default function BillingActions(props: {
             Plan: <span className={`font-semibold ${textStrong}`}>Pro</span> (unlimited
             checks)
           </p>
-          {props.proAccessUntil ? (
+          {showProPeriodDetails && props.proAccessUntil ? (
             <p className={`text-xs ${textMuted}`}>
               Period ends{" "}
               <span className={`font-semibold ${textStrong}`}>
@@ -111,7 +113,7 @@ export default function BillingActions(props: {
                 <> • Canceled</>
               ) : null}
             </p>
-          ) : props.proWillCancelAtPeriodEnd ? (
+          ) : showProPeriodDetails && props.proWillCancelAtPeriodEnd ? (
             <p className={`text-xs ${textMuted}`}>Canceled (downgrades to Free)</p>
           ) : null}
           <button
