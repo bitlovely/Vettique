@@ -219,20 +219,14 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="bg-background py-6 border-b border-border">
-        <div className="container mx-auto px-4">
-          <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-r from-brand/10 via-background to-transparent px-6 py-5 shadow-sm">
-            <div className="pointer-events-none absolute inset-0 opacity-60 dark:opacity-40">
-              <div className="absolute -left-24 -top-24 h-48 w-48 rounded-full bg-brand/25 blur-3xl" />
-              <div className="absolute -right-24 -bottom-24 h-48 w-48 rounded-full bg-indigo-500/15 blur-3xl" />
-            </div>
-
-            <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <p className="text-sm sm:text-base font-semibold text-foreground">
+      <section className="border-b border-border">
+        <div className="w-full bg-[#3B82F6]">
+          <div className="w-full px-4 sm:px-8">
+            <div className="py-5 sm:py-6">
+              <p className="text-sm sm:text-base font-semibold text-white text-center tracking-tight">
                 Built for Amazon and Shopify sellers
               </p>
-              <div className="hidden md:block h-5 w-px bg-border/60" />
-              <p className="text-sm text-foreground/70 md:text-right">
+              <p className="text-xs sm:text-sm text-white/90 text-center mt-2">
                 Vet suppliers fast. Reduce deposit risk. Decide with confidence
               </p>
             </div>
