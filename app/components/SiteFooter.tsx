@@ -74,10 +74,10 @@ export default function SiteFooter(props: { variant?: "primary" | "app" }) {
                 Terms of Service
               </Link>
               <a
-                href="mailto:hello@vettique.com"
+                href="mailto:ziad@vettique.com"
                 className="hover:text-primary-foreground transition-colors"
               >
-                hello@vettique.com
+                ziad@vettique.com
               </a>
             </div>
             <p className="text-sm text-primary-foreground/40">
@@ -120,10 +120,10 @@ export default function SiteFooter(props: { variant?: "primary" | "app" }) {
                 Terms of Service
               </Link>
               <a
-                href="mailto:hello@vettique.com"
+                href="mailto:ziad@vettique.com"
                 className="hover:text-foreground transition-colors"
               >
-                hello@vettique.com
+                ziad@vettique.com
               </a>
             </div>
             <p className="text-sm text-muted-foreground">

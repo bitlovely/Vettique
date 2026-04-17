@@ -67,9 +67,9 @@ export default function PrivacyPolicyPage() {
                 For privacy questions, contact{" "}
                 <a
                   className="text-brand hover:underline"
-                  href="mailto:hello@vettique.com"
+                  href="mailto:ziad@vettique.com"
                 >
-                  hello@vettique.com
+                  ziad@vettique.com
                 </a>
                 .
               </p>
