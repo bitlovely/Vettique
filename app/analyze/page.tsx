@@ -11,6 +11,8 @@ export default async function AnalyzePage({
   const sp = (await searchParams) ?? {};
   const sessionIdRaw = sp.session_id;
   const sessionId = Array.isArray(sessionIdRaw) ? sessionIdRaw[0] : sessionIdRaw;
+  const billingRaw = sp.billing;
+  const billing = Array.isArray(billingRaw) ? billingRaw[0] : billingRaw;
 
   const supabase = await createClient();
   const {
@@ -29,12 +31,17 @@ export default async function AnalyzePage({
   const { data: profile } = userId
     ? await supabase
         .from("profiles")
-        .select("plan, checks_this_month, checks_month")
+        .select(
+          "plan, checks_this_month, checks_month, stripe_customer_id, stripe_subscription_id",
+        )
         .eq("user_id", userId)
         .maybeSingle()
     : { data: null as any };
 
   const plan = (profile?.plan as "free" | "pro") ?? "free";
+  let effectivePlan: "free" | "pro" = plan;
+  let proAccessUntil: Date | null = null;
+  let proWillCancelAtPeriodEnd = false;
   const checksMonth = (profile?.checks_month as string) ?? monthStart;
   const checksThisMonth =
     checksMonth === monthStart ? Number(profile?.checks_this_month ?? 0) : 0;
@@ -67,10 +74,84 @@ export default async function AnalyzePage({
               },
               { onConflict: "user_id" },
             );
+          effectivePlan = "pro";
         }
       }
     } catch {
       // Best-effort; webhook remains the canonical source of truth.
+    }
+  }
+
+  // Best-effort sync after returning from Stripe billing portal.
+  // This makes cancellations reflect immediately in dev/test even if webhooks
+  // are delayed/missed.
+  if (userId && billing === "1") {
+    const customerId = (profile?.stripe_customer_id as string | null) ?? null;
+    const subscriptionId =
+      (profile?.stripe_subscription_id as string | null) ?? null;
+
+    if (customerId || subscriptionId) {
+      try {
+        const stripe = getStripe();
+
+        let status: string | null = null;
+        if (subscriptionId) {
+          const sub = await stripe.subscriptions.retrieve(subscriptionId);
+          status = (sub?.status as string | undefined) ?? null;
+        } else if (customerId) {
+          const subs = await stripe.subscriptions.list({
+            customer: customerId,
+            status: "all",
+            limit: 3,
+          });
+          const best = subs.data.find((s) =>
+            ["active", "trialing", "past_due"].includes(String(s.status)),
+          );
+          status = (best?.status as string | undefined) ?? null;
+        }
+
+        const isActive =
+          status === "active" || status === "trialing" || status === "past_due";
+        const nextPlan: "free" | "pro" = isActive ? "pro" : "free";
+
+        if (nextPlan !== effectivePlan) {
+          const admin = createAdminClient();
+          await admin
+            .from("profiles")
+            .upsert(
+              {
+                user_id: userId,
+                plan: nextPlan,
+                stripe_customer_id: customerId,
+                stripe_subscription_id: subscriptionId,
+              },
+              { onConflict: "user_id" },
+            );
+          effectivePlan = nextPlan;
+        }
+      } catch {
+        // Best-effort; webhook remains canonical.
+      }
+    }
+  }
+
+  // If user is currently Pro, fetch subscription details so we can show
+  // "Pro access until <date>" when cancellation is scheduled.
+  if (userId && effectivePlan === "pro") {
+    const subscriptionId =
+      (profile?.stripe_subscription_id as string | null) ?? null;
+    if (subscriptionId) {
+      try {
+        const stripe = getStripe();
+        const sub = await stripe.subscriptions.retrieve(subscriptionId);
+        proWillCancelAtPeriodEnd = Boolean(sub?.cancel_at_period_end);
+        const periodEnd = Number((sub as any)?.current_period_end);
+        if (Number.isFinite(periodEnd) && periodEnd > 0) {
+          proAccessUntil = new Date(periodEnd * 1000);
+        }
+      } catch {
+        // Best-effort.
+      }
     }
   }
 
@@ -140,10 +221,12 @@ export default async function AnalyzePage({
                   CHECKS REMAINING
                 </p>
                 <p className="text-4xl font-extrabold mt-3 tabular-nums">
-                  {plan === "pro" ? "∞" : remaining.toString().padStart(2, "0")}
+                  {effectivePlan === "pro"
+                    ? "∞"
+                    : remaining.toString().padStart(2, "0")}
                 </p>
                 <p className="text-sm text-white/80 mt-2">
-                  {plan === "pro"
+                  {effectivePlan === "pro"
                     ? "Pro plan — unlimited checks."
                     : `${checksThisMonth}/${limit} used this month`}
                 </p>
@@ -178,14 +261,33 @@ export default async function AnalyzePage({
                   BILLING
                 </p>
                 <p className="text-3xl font-extrabold mt-3">
-                  {plan === "pro" ? "Pro" : "Free"}
+                  {effectivePlan === "pro" ? "Pro" : "Free"}
                 </p>
+                {effectivePlan === "pro" && proWillCancelAtPeriodEnd && proAccessUntil ? (
+                  <p className="text-sm text-white/80 mt-2">
+                    Cancels on{" "}
+                    <span className="font-semibold text-white">
+                      {proAccessUntil.toLocaleDateString()}
+                    </span>{" "}
+                    (downgrades to Free)
+                  </p>
+                ) : (
+                  <p className="text-sm text-white/80 mt-2">
+                    {effectivePlan === "pro"
+                      ? "Pro plan — unlimited checks."
+                      : "Free plan — 3 checks/month."}
+                  </p>
+                )}
                 <div className="mt-4">
                   <BillingActions
-                    plan={plan}
+                    plan={effectivePlan}
                     checksThisMonth={checksThisMonth}
                     limit={limit}
                     variant="gradient"
+                    proAccessUntil={
+                      proAccessUntil ? proAccessUntil.toISOString() : undefined
+                    }
+                    proWillCancelAtPeriodEnd={proWillCancelAtPeriodEnd}
                   />
                 </div>
               </div>

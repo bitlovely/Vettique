@@ -7,6 +7,8 @@ export default function BillingActions(props: {
   checksThisMonth: number;
   limit: number;
   variant?: "default" | "gradient";
+  proAccessUntil?: string;
+  proWillCancelAtPeriodEnd?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +91,15 @@ export default function BillingActions(props: {
             Plan: <span className={`font-semibold ${textStrong}`}>Pro</span> (unlimited
             checks)
           </p>
+          {props.proWillCancelAtPeriodEnd && props.proAccessUntil ? (
+            <p className={`text-xs ${textMuted}`}>
+              Pro access until{" "}
+              <span className={`font-semibold ${textStrong}`}>
+                {new Date(props.proAccessUntil).toLocaleDateString()}
+              </span>
+              . Then you’ll be on Free.
+            </p>
+          ) : null}
           <button
             type="button"
             onClick={goToPortal}

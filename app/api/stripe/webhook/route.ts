@@ -11,6 +11,12 @@ async function upsertProfilePlan(params: {
   stripeSubscriptionId?: string | null;
 }) {
   const supabase = createAdminClient();
+  console.log("[stripe-webhook] upsertProfilePlan:start", {
+    userId: params.userId,
+    plan: params.plan,
+    stripeCustomerId: params.stripeCustomerId ?? null,
+    stripeSubscriptionId: params.stripeSubscriptionId ?? null,
+  });
   await supabase
     .from("profiles")
     .upsert(
@@ -22,6 +28,10 @@ async function upsertProfilePlan(params: {
       },
       { onConflict: "user_id" },
     );
+  console.log("[stripe-webhook] upsertProfilePlan:done", {
+    userId: params.userId,
+    plan: params.plan,
+  });
 }
 
 export async function POST(req: Request) {
@@ -43,6 +53,7 @@ export async function POST(req: Request) {
   try {
     event = stripe.webhooks.constructEvent(body, sig, secret);
   } catch (err) {
+    console.error("[stripe-webhook] signature verification failed", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Invalid signature" },
       { status: 400 },
@@ -50,10 +61,19 @@ export async function POST(req: Request) {
   }
 
   try {
+    console.log("[stripe-webhook] received", {
+      type: event.type,
+      id: event.id,
+    });
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object;
         const userId = session?.metadata?.supabase_user_id as string | undefined;
+        console.log("[stripe-webhook] checkout.session.completed", {
+          userId: userId ?? null,
+          customerId: session?.customer ?? null,
+          subscriptionId: session?.subscription ?? null,
+        });
         if (userId) {
           await upsertProfilePlan({
             userId,
@@ -69,6 +89,15 @@ export async function POST(req: Request) {
         const sub = event.data.object;
         const customerId = sub.customer as string | undefined;
         const status = sub.status as string | undefined;
+        const cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end);
+
+        console.log("[stripe-webhook] subscription event", {
+          type: event.type,
+          customerId: customerId ?? null,
+          subscriptionId: sub.id ?? null,
+          status: status ?? null,
+          cancelAtPeriodEnd,
+        });
 
         // Find userId via profiles.stripe_customer_id
         if (customerId) {
@@ -80,9 +109,19 @@ export async function POST(req: Request) {
             .maybeSingle();
 
           const userId = data?.user_id as string | undefined;
+          console.log("[stripe-webhook] customer lookup", {
+            customerId,
+            matchedUserId: userId ?? null,
+          });
           if (userId) {
             const isActive =
               status === "active" || status === "trialing" || status === "past_due";
+            console.log("[stripe-webhook] subscription plan decision", {
+              userId,
+              status,
+              cancelAtPeriodEnd,
+              nextPlan: isActive ? "pro" : "free",
+            });
             await upsertProfilePlan({
               userId,
               plan: isActive ? "pro" : "free",
@@ -94,9 +133,11 @@ export async function POST(req: Request) {
         break;
       }
       default:
+        console.log("[stripe-webhook] ignored event", { type: event.type });
         break;
     }
   } catch (err) {
+    console.error("[stripe-webhook] handler failed", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Webhook handling error" },
       { status: 500 },
