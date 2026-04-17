@@ -168,6 +168,17 @@ export default function AuthForm() {
                 />
               </div>
 
+              {tab === "login" ? (
+                <div className="flex items-center justify-end">
+                  <Link
+                    href="/auth/forgot"
+                    className="text-sm font-medium text-brand hover:underline"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+              ) : null}
+
               {error ? (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                   {error}
