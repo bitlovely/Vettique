@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { parseModelJson } from "@/lib/analysis/geminiJson";
+import { GEMINI_REPORT_RESPONSE_SCHEMA } from "@/lib/analysis/geminiReportSchema";
 import type { RiskReport, SupplierInput } from "@/lib/analysis/types";
+
+const GEMINI_JSON_OUTPUT_CONTRACT = `OUTPUT CONTRACT (mandatory):
+- Your entire reply must be ONE JSON object only.
+- The first non-whitespace character must be "{" and the last meaningful character must be "}".
+- Do not wrap the JSON in markdown, do not use \`\`\` code fences, and do not write any preamble, headings, or closing commentary before or after the object.
+- Use standard JSON: double-quoted keys and strings only, no trailing commas, no comments, no undefined, no NaN/Infinity.
+- Inside string values, escape double quotes as \\" and newlines as \\n so the output is valid for JSON.parse() with no repair step.`;
 
 function clampScore(n: number) {
   if (!Number.isFinite(n)) return 50;
@@ -274,7 +283,7 @@ async function callGemini(userId: string, input: SupplierInput): Promise<GeminiR
     return null;
   }
 
-  const system = `You are a senior import/export risk analyst with 15 years of experience vetting overseas suppliers for small e-commerce and Amazon sellers. You are direct, specific, and never sugarcoat risks.
+  const systemCore = `You are a senior import/export risk analyst with 15 years of experience vetting overseas suppliers for small e-commerce and Amazon sellers. You are direct, specific, and never sugarcoat risks.
 
 Analyse this supplier profile and return ONLY valid JSON (no markdown, no code fences, no commentary before or after the JSON). Be realistic — not every supplier is high risk — but be genuinely critical where warranted.
 
@@ -310,6 +319,10 @@ FORBIDDEN — do not use these as flag titles, recommendation text, or vague sub
 
 QUALITY BAR: A competent importer reading the JSON should know exactly what to verify next for this supplier — not generic e-commerce advice.`;
 
+  const system = `${GEMINI_JSON_OUTPUT_CONTRACT}
+
+${systemCore}`;
+
   const enabledChecks = Object.entries(input.checksToRun)
     .filter(([, v]) => v)
     .map(([k]) => k);
@@ -327,7 +340,11 @@ QUALITY BAR: A competent importer reading the JSON should know exactly what to v
 CHECKS TO RUN (enabled):
 ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balanced report)"}\n`;
 
-  const basePayload = {
+  const retrySystem = `${system}
+
+RETRY: The API failed to parse your last reply as JSON (malformed, extra text, or invalid escapes). Output again with NOTHING except one JSON object: first character "{" and last "}". No markdown, no code fences, no commentary. If you must shorten text, trim wording — keep at least 4 flags and 4 recommendations.`;
+
+  const mainPayload = {
     contents: [
       {
         role: "user",
@@ -335,18 +352,13 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
       },
     ],
     generationConfig: {
-      temperature: 0.35,
+      temperature: 0.28,
       responseMimeType: "application/json",
-      // Enough room for 4-6 detailed flags + 4-5 recommendations without truncation.
       maxOutputTokens: 4096,
     },
-  } as const;
+  };
 
-  const retrySystem = `${system}
-
-RETRY: If your previous attempt was truncated or invalid JSON, output one complete valid JSON object only. If you must shorten text to fit, trim adjectives first — never reduce the number of flags below 4 or recommendations below 4, and never replace specifics with generic phrases.`;
-
-  const compactPayload = {
+  const jsonRetryPayload = {
     contents: [
       {
         role: "user",
@@ -354,18 +366,20 @@ RETRY: If your previous attempt was truncated or invalid JSON, output one comple
       },
     ],
     generationConfig: {
-      temperature: 0.25,
+      temperature: 0.12,
       responseMimeType: "application/json",
       maxOutputTokens: 4096,
     },
-  } as const;
+  };
 
   function buildExpandCountsPayload(partial: RiskReport, strict: boolean) {
     const intro = strict
       ? `CRITICAL: The previous JSON still had fewer than ${REPORT_MIN_FLAGS} flags or fewer than ${REPORT_MIN_RECS} recommendations. Your response will be discarded unless flags.length is ${REPORT_MIN_FLAGS}-${REPORT_MAX_FLAGS} AND recommendations.length is ${REPORT_MIN_RECS}-${REPORT_MAX_RECS}.`
       : `The draft report violates the contract: "flags" must have length ${REPORT_MIN_FLAGS}-${REPORT_MAX_FLAGS} (inclusive) and "recommendations" must have length ${REPORT_MIN_RECS}-${REPORT_MAX_RECS} (inclusive).`;
 
-    const expandSystem = `${intro}
+    const expandSystem = `${GEMINI_JSON_OUTPUT_CONTRACT}
+
+${intro}
 
 Return ONLY valid JSON (no markdown, no code fences). Keep riskScore, riskLevel, summary, and verdict aligned with the draft when still accurate — but you MUST replace "flags" and "recommendations" so the final arrays meet the counts exactly within those ranges. Merge strong items from the draft, then add new distinct flags and recommendations until counts are valid. Each flag: severity, concrete title, detail with 2+ sentences tied to this supplier. No umbrella titles.
 
@@ -399,7 +413,9 @@ Schema:
   }
 
   function buildRepairPayload(truncatedJson: string) {
-    const repairSystem = `You will be given a TRUNCATED or partial JSON supplier risk report.
+    const repairSystem = `${GEMINI_JSON_OUTPUT_CONTRACT}
+
+You will be given a TRUNCATED or partial JSON supplier risk report.
 Output ONLY one complete, valid JSON object. No markdown or backticks.
 - Preserve and expand existing specific wording where it is already concrete.
 - Ensure the final object has 4-6 flags and 4-5 recommendations (add missing entries with supplier-specific content inferred from whatever fields are present in the partial JSON — never generic placeholders like "Multiple issues found" or "Further investigation needed").
@@ -463,6 +479,31 @@ Schema (must match exactly):
     return res!;
   }
 
+  /** Prefer structured JSON schema; on 400 (unsupported / bad schema) retry once without schema. */
+  async function fetchWithSchemaFallback(payload: {
+    contents: unknown;
+    generationConfig: Record<string, unknown>;
+  }): Promise<Response> {
+    const withSchema = {
+      ...payload,
+      generationConfig: {
+        ...payload.generationConfig,
+        responseSchema: GEMINI_REPORT_RESPONSE_SCHEMA,
+      },
+    };
+    const plainCfg = { ...payload.generationConfig };
+    delete plainCfg.responseSchema;
+    const plain = {
+      ...payload,
+      generationConfig: plainCfg,
+    };
+    let res = await fetchWithRetry(withSchema);
+    if (res.status === 400) {
+      res = await fetchWithRetry(plain);
+    }
+    return res;
+  }
+
   function getCachedGood(): GeminiResult | null {
     const v = lastGoodByUser.get(userId);
     if (!v) return null;
@@ -516,59 +557,65 @@ Schema (must match exactly):
         ? text.trim().slice(0, 200)
         : "";
 
-    let parsed: any;
-    try {
-      const cleaned = String(text)
-        .trim()
-        .replace(/^```(?:json)?\s*/i, "")
-        .replace(/\s*```$/i, "");
-      parsed = JSON.parse(cleaned);
-    } catch {
-      const match = text.match(/\{[\s\S]*\}/);
-      if (!match) {
-        if (finishReason === "MAX_TOKENS") {
-          return {
-            report: buildMockReport(input),
-            mocked: true,
-            mockedCode: "TRUNCATED",
-            mockedReason:
-              "Gemini response was truncated (MAX_TOKENS) before completing valid JSON.",
-            geminiFinishReason:
-              typeof finishReason === "string" ? finishReason : undefined,
-            geminiSafetyRatings: safetyRatings,
-            geminiTextSnippet: textSnippet || undefined,
-          };
-        }
+    const rawText = String(text);
+    const parsed = parseModelJson(rawText);
+    if (parsed.ok) {
+      return {
+        mocked: false,
+        report: parsedJsonToReport(parsed.value),
+      };
+    }
+
+    const hasBrace = rawText.includes("{");
+    if (!hasBrace) {
+      if (finishReason === "MAX_TOKENS") {
         return {
           report: buildMockReport(input),
           mocked: true,
-          mockedCode: "NON_JSON",
-          mockedReason: "Gemini returned non-JSON output.",
+          mockedCode: "TRUNCATED",
+          mockedReason:
+            "Gemini response was truncated (MAX_TOKENS) before completing valid JSON.",
           geminiFinishReason:
             typeof finishReason === "string" ? finishReason : undefined,
           geminiSafetyRatings: safetyRatings,
           geminiTextSnippet: textSnippet || undefined,
         };
       }
-      try {
-        parsed = JSON.parse(match[0]);
-      } catch {
-        return {
-          report: buildMockReport(input),
-          mocked: true,
-          mockedCode: "INVALID_JSON",
-          mockedReason: "Gemini returned invalid JSON (malformed).",
-          geminiFinishReason:
-            typeof finishReason === "string" ? finishReason : undefined,
-          geminiSafetyRatings: safetyRatings,
-          geminiTextSnippet: textSnippet || undefined,
-        };
-      }
+      return {
+        report: buildMockReport(input),
+        mocked: true,
+        mockedCode: "NON_JSON",
+        mockedReason: "Gemini returned non-JSON output.",
+        geminiFinishReason:
+          typeof finishReason === "string" ? finishReason : undefined,
+        geminiSafetyRatings: safetyRatings,
+        geminiTextSnippet: textSnippet || undefined,
+      };
+    }
+
+    if (finishReason === "MAX_TOKENS") {
+      return {
+        report: buildMockReport(input),
+        mocked: true,
+        mockedCode: "TRUNCATED",
+        mockedReason:
+          "Gemini response was truncated (MAX_TOKENS) before completing valid JSON.",
+        geminiFinishReason:
+          typeof finishReason === "string" ? finishReason : undefined,
+        geminiSafetyRatings: safetyRatings,
+        geminiTextSnippet: textSnippet || undefined,
+      };
     }
 
     return {
-      mocked: false,
-      report: parsedJsonToReport(parsed),
+      report: buildMockReport(input),
+      mocked: true,
+      mockedCode: "INVALID_JSON",
+      mockedReason: "Gemini returned invalid JSON (malformed).",
+      geminiFinishReason:
+        typeof finishReason === "string" ? finishReason : undefined,
+      geminiSafetyRatings: safetyRatings,
+      geminiTextSnippet: textSnippet || undefined,
     };
   }
 
@@ -577,7 +624,7 @@ Schema (must match exactly):
     if (reportMeetsBriefCounts(result.report)) return result;
 
     const first = await parseResponseOrFallback(
-      await fetchWithRetry(buildExpandCountsPayload(result.report, false)),
+      await fetchWithSchemaFallback(buildExpandCountsPayload(result.report, false)),
     );
     if (!first.mocked && reportMeetsBriefCounts(first.report)) return first;
 
@@ -586,7 +633,7 @@ Schema (must match exactly):
       : result.report;
 
     const second = await parseResponseOrFallback(
-      await fetchWithRetry(buildExpandCountsPayload(richerDraft, true)),
+      await fetchWithSchemaFallback(buildExpandCountsPayload(richerDraft, true)),
     );
     if (!second.mocked && reportMeetsBriefCounts(second.report)) return second;
 
@@ -607,19 +654,23 @@ Schema (must match exactly):
   const work = (async (): Promise<GeminiResult> => {
     // First attempt (normal). If it gets truncated/non-JSON, retry once compact.
     const first = await parseResponseOrFallback(
-      await fetchWithRetry(basePayload),
+      await fetchWithSchemaFallback(mainPayload),
     );
     if (!first.mocked) {
       const finalized = await ensureReportCountsIfNeeded(first);
       lastGoodByUser.set(userId, { atMs: Date.now(), result: finalized });
       return finalized;
     }
-    if (first.mockedCode !== "TRUNCATED" && first.mockedCode !== "NON_JSON") {
+    if (
+      first.mockedCode !== "TRUNCATED" &&
+      first.mockedCode !== "NON_JSON" &&
+      first.mockedCode !== "INVALID_JSON"
+    ) {
       return first;
     }
 
     const second = await parseResponseOrFallback(
-      await fetchWithRetry(compactPayload),
+      await fetchWithSchemaFallback(jsonRetryPayload),
     );
     if (!second.mocked) {
       const finalized = await ensureReportCountsIfNeeded(second);
@@ -635,7 +686,7 @@ Schema (must match exactly):
 
     if (repairCandidate) {
       const repaired = await parseResponseOrFallback(
-        await fetchWithRetry(buildRepairPayload(repairCandidate)),
+        await fetchWithSchemaFallback(buildRepairPayload(repairCandidate)),
       );
       if (!repaired.mocked) {
         const finalized = await ensureReportCountsIfNeeded(repaired);
