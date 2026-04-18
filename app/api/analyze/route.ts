@@ -27,32 +27,49 @@ type MockedCode =
   | "INVALID_JSON";
 
 function buildMockReport(input: SupplierInput): RiskReport {
+  const cat = input.productCategory;
+  const region = input.countryRegion;
   return {
     riskScore: 42,
     riskLevel: "MEDIUM",
-    summary: `Fallback report. Supplier: ${input.companyName}.`,
+    summary: `Demo fallback (AI unavailable). For ${input.companyName} in ${region}, selling ${cat}, this is a placeholder risk picture so you can test the UI — run again when Gemini is connected for a real assessment.`,
     flags: [
       {
         severity: "amber",
-        title: "Verification gaps",
+        title: `Business identity for ${input.companyName} not verified in this demo`,
         detail:
-          "Provide website, business registration, and references to validate legitimacy.",
+          "Request a company registration extract, VAT/tax ID, and a video call on a registered domain email before sharing designs or paying deposits. Match the legal entity name to the bank account beneficiary exactly.",
+      },
+      {
+        severity: "amber",
+        title: `Country exposure: ${region} logistics and dispute recovery`,
+        detail:
+          "Map realistic lead times and incoterms for this region and category. Confirm who pays duties and who holds title in transit. Agree in writing on defect rates, rework, and chargebacks before scaling volume.",
+      },
+      {
+        severity: "amber",
+        title: `Category controls for ${cat}: specs, compliance, and samples`,
+        detail:
+          "Lock a golden sample, material specs, packaging, and labeling (including marketplace compliance if you sell on Amazon). Book a third-party inspection on the first production lot if order value is material.",
       },
       {
         severity: "green",
-        title: "Risk-limiting next step",
-        detail: "Use escrow or a small trial order to reduce risk.",
+        title: "Structural way to cap payment loss on a new supplier",
+        detail:
+          "Prefer purchase orders with milestone releases, escrow, or LC-style protections over unstructured T/T until track record exists. Cap the first wire to the smallest amount that still lets the factory start credibly.",
       },
     ],
     recommendations: [
-      "Start with a small trial order to verify product quality and shipping reliability.",
-      "Avoid wiring large upfront payments without proof of track record.",
+      `Obtain and verify registration + banking details for ${input.companyName} and confirm they align with ${region} records you can check independently.`,
+      "Negotiate payment milestones tied to inspection or shipment documents rather than a single large upfront transfer.",
+      `Order a paid pilot shipment in ${cat} with agreed acceptance criteria before committing to bulk.`,
+      "Use a written contract referencing incoterms, defect allowances, and clear remedies if quality or timing slips.",
     ],
     verdict: {
       class: "caution",
-      headline: "Proceed only with controls",
+      headline: "Demo report — connect AI for supplier-specific findings",
       detail:
-        "There are enough unknowns that you should treat this supplier as medium risk until verification is complete. Use protective terms and verify identity before sending meaningful funds.",
+        "This four-flag layout mirrors the live product format. When Gemini is available, you will get the same structure with text grounded in your exact quote, platform signals, and notes. Until then, treat every field as illustrative only.",
     },
   };
 }
@@ -122,6 +139,90 @@ function validateInput(body: unknown): SupplierInput {
       operationalSignals: c.operationalSignals as boolean,
     },
   };
+}
+
+const REPORT_MIN_FLAGS = 4;
+const REPORT_MAX_FLAGS = 6;
+const REPORT_MIN_RECS = 4;
+const REPORT_MAX_RECS = 5;
+
+function normalizeFlagsFromParsed(raw: unknown): RiskReport["flags"] {
+  if (!Array.isArray(raw)) return [];
+  const out: RiskReport["flags"] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const sevRaw = o.severity;
+    const severity =
+      sevRaw === "red" || sevRaw === "amber" || sevRaw === "green" ? sevRaw : "amber";
+    const title = typeof o.title === "string" ? o.title.trim() : "";
+    const detail = typeof o.detail === "string" ? o.detail.trim() : "";
+    if (!title && !detail) continue;
+    out.push({
+      severity,
+      title: title || "Risk topic",
+      detail: detail || title,
+    });
+  }
+  return out;
+}
+
+function normalizeRecommendationsFromParsed(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((r): r is string => typeof r === "string" && r.trim().length > 0)
+    .map((r) => r.trim());
+}
+
+function clampReportArrays(report: RiskReport): RiskReport {
+  return {
+    ...report,
+    flags: report.flags.slice(0, REPORT_MAX_FLAGS),
+    recommendations: report.recommendations.slice(0, REPORT_MAX_RECS),
+  };
+}
+
+function parsedJsonToReport(parsed: unknown): RiskReport {
+  const p = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
+  const verdictRaw =
+    p.verdict && typeof p.verdict === "object"
+      ? (p.verdict as Record<string, unknown>)
+      : {};
+  return clampReportArrays({
+    riskScore: clampScore(Number(p.riskScore)),
+    riskLevel: normalizeRiskLevel(p.riskLevel),
+    summary: typeof p.summary === "string" ? p.summary : "",
+    flags: normalizeFlagsFromParsed(p.flags),
+    recommendations: normalizeRecommendationsFromParsed(p.recommendations),
+    verdict: {
+      class: normalizeVerdictClass(verdictRaw.class),
+      headline:
+        typeof verdictRaw.headline === "string" ? verdictRaw.headline : "",
+      detail: typeof verdictRaw.detail === "string" ? verdictRaw.detail : "",
+    },
+  });
+}
+
+function reportMeetsBriefCounts(report: RiskReport): boolean {
+  const nf = report.flags.length;
+  const nr = report.recommendations.length;
+  return (
+    nf >= REPORT_MIN_FLAGS &&
+    nf <= REPORT_MAX_FLAGS &&
+    nr >= REPORT_MIN_RECS &&
+    nr <= REPORT_MAX_RECS
+  );
+}
+
+/** Prefer reports that satisfy minimum counts; otherwise pick the densest response. */
+function pickRicherReport(a: RiskReport, b: RiskReport): RiskReport {
+  const score = (r: RiskReport) => {
+    let s = r.flags.length * 10 + r.recommendations.length;
+    if (r.flags.length >= REPORT_MIN_FLAGS) s += 1000;
+    if (r.recommendations.length >= REPORT_MIN_RECS) s += 1000;
+    return s;
+  };
+  return score(b) > score(a) ? b : a;
 }
 
 type GeminiResult = {
@@ -258,6 +359,44 @@ RETRY: If your previous attempt was truncated or invalid JSON, output one comple
       maxOutputTokens: 4096,
     },
   } as const;
+
+  function buildExpandCountsPayload(partial: RiskReport, strict: boolean) {
+    const intro = strict
+      ? `CRITICAL: The previous JSON still had fewer than ${REPORT_MIN_FLAGS} flags or fewer than ${REPORT_MIN_RECS} recommendations. Your response will be discarded unless flags.length is ${REPORT_MIN_FLAGS}-${REPORT_MAX_FLAGS} AND recommendations.length is ${REPORT_MIN_RECS}-${REPORT_MAX_RECS}.`
+      : `The draft report violates the contract: "flags" must have length ${REPORT_MIN_FLAGS}-${REPORT_MAX_FLAGS} (inclusive) and "recommendations" must have length ${REPORT_MIN_RECS}-${REPORT_MAX_RECS} (inclusive).`;
+
+    const expandSystem = `${intro}
+
+Return ONLY valid JSON (no markdown, no code fences). Keep riskScore, riskLevel, summary, and verdict aligned with the draft when still accurate — but you MUST replace "flags" and "recommendations" so the final arrays meet the counts exactly within those ranges. Merge strong items from the draft, then add new distinct flags and recommendations until counts are valid. Each flag: severity, concrete title, detail with 2+ sentences tied to this supplier. No umbrella titles.
+
+Schema:
+{
+  "riskScore": <integer 0-100>,
+  "riskLevel": "LOW" | "MEDIUM" | "HIGH",
+  "summary": "<string>",
+  "flags": [{"severity":"red"|"amber"|"green","title":"<string>","detail":"<string>"}],
+  "recommendations": ["<string>"],
+  "verdict": {"class":"proceed"|"caution"|"avoid","headline":"<string>","detail":"<string>"}
+}`;
+
+    return {
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: `${expandSystem}\n\n${prompt}\n\nCURRENT_DRAFT_JSON:\n${JSON.stringify(partial)}`,
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: strict ? 0.1 : 0.2,
+        responseMimeType: "application/json",
+        maxOutputTokens: 4096,
+      },
+    } as const;
+  }
 
   function buildRepairPayload(truncatedJson: string) {
     const repairSystem = `You will be given a TRUNCATED or partial JSON supplier risk report.
@@ -429,27 +568,37 @@ Schema (must match exactly):
 
     return {
       mocked: false,
-      report: {
-        riskScore: clampScore(Number(parsed?.riskScore)),
-        riskLevel: normalizeRiskLevel(parsed?.riskLevel),
-        summary: typeof parsed?.summary === "string" ? parsed.summary : "",
-        flags: Array.isArray(parsed?.flags) ? parsed.flags : [],
-        recommendations: Array.isArray(parsed?.recommendations)
-          ? parsed.recommendations
-          : [],
-        verdict: {
-          class: normalizeVerdictClass(parsed?.verdict?.class),
-          headline:
-            typeof parsed?.verdict?.headline === "string"
-              ? parsed.verdict.headline
-              : "",
-          detail:
-            typeof parsed?.verdict?.detail === "string"
-              ? parsed.verdict.detail
-              : "",
-        },
-      },
+      report: parsedJsonToReport(parsed),
     };
+  }
+
+  async function ensureReportCountsIfNeeded(result: GeminiResult): Promise<GeminiResult> {
+    if (result.mocked) return result;
+    if (reportMeetsBriefCounts(result.report)) return result;
+
+    const first = await parseResponseOrFallback(
+      await fetchWithRetry(buildExpandCountsPayload(result.report, false)),
+    );
+    if (!first.mocked && reportMeetsBriefCounts(first.report)) return first;
+
+    const richerDraft = !first.mocked
+      ? pickRicherReport(result.report, first.report)
+      : result.report;
+
+    const second = await parseResponseOrFallback(
+      await fetchWithRetry(buildExpandCountsPayload(richerDraft, true)),
+    );
+    if (!second.mocked && reportMeetsBriefCounts(second.report)) return second;
+
+    const pool: GeminiResult[] = [result];
+    if (!first.mocked) pool.push(first);
+    if (!second.mocked) pool.push(second);
+    let best = result;
+    for (const c of pool) {
+      if (reportMeetsBriefCounts(c.report)) return c;
+      if (pickRicherReport(best.report, c.report) === c.report) best = c;
+    }
+    return best;
   }
 
   const existing = inFlightByUser.get(userId);
@@ -461,8 +610,9 @@ Schema (must match exactly):
       await fetchWithRetry(basePayload),
     );
     if (!first.mocked) {
-      lastGoodByUser.set(userId, { atMs: Date.now(), result: first });
-      return first;
+      const finalized = await ensureReportCountsIfNeeded(first);
+      lastGoodByUser.set(userId, { atMs: Date.now(), result: finalized });
+      return finalized;
     }
     if (first.mockedCode !== "TRUNCATED" && first.mockedCode !== "NON_JSON") {
       return first;
@@ -472,8 +622,9 @@ Schema (must match exactly):
       await fetchWithRetry(compactPayload),
     );
     if (!second.mocked) {
-      lastGoodByUser.set(userId, { atMs: Date.now(), result: second });
-      return second;
+      const finalized = await ensureReportCountsIfNeeded(second);
+      lastGoodByUser.set(userId, { atMs: Date.now(), result: finalized });
+      return finalized;
     }
 
     // If we hit MAX_TOKENS, do one small "JSON repair" pass using the partial output.
@@ -487,8 +638,9 @@ Schema (must match exactly):
         await fetchWithRetry(buildRepairPayload(repairCandidate)),
       );
       if (!repaired.mocked) {
-        lastGoodByUser.set(userId, { atMs: Date.now(), result: repaired });
-        return repaired;
+        const finalized = await ensureReportCountsIfNeeded(repaired);
+        lastGoodByUser.set(userId, { atMs: Date.now(), result: finalized });
+        return finalized;
       }
     }
 
