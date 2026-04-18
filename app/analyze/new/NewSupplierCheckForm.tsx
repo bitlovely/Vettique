@@ -1,7 +1,29 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { toast } from "sonner";
 import type { RiskReport, SupplierInput } from "@/lib/analysis/types";
+
+function createDefaultSupplierForm(): SupplierInput {
+  return {
+    companyName: "",
+    countryRegion: "",
+    platformFoundOn: "",
+    yearsOnPlatform: "",
+    productCategory: "",
+    orderSizeUnits: "",
+    quoteReceived: "",
+    observations: "",
+    checksToRun: {
+      legitimacy: true,
+      paymentTerms: true,
+      locationRisk: true,
+      platformSignals: true,
+      productCategoryRisk: true,
+      operationalSignals: true,
+    },
+  };
+}
 
 function Pill(props: {
   severity: "red" | "amber" | "green";
@@ -47,24 +69,7 @@ export default function NewSupplierCheckForm() {
   const selectClass = `${fieldBase} h-11 pr-10`;
   const textareaClass = `${fieldBase} min-h-[112px]`;
 
-  const [form, setForm] = useState<SupplierInput>({
-    companyName: "",
-    countryRegion: "",
-    platformFoundOn: "",
-    yearsOnPlatform: "",
-    productCategory: "",
-    orderSizeUnits: "",
-    quoteReceived: "",
-    observations: "",
-    checksToRun: {
-      legitimacy: true,
-      paymentTerms: true,
-      locationRisk: true,
-      platformSignals: true,
-      productCategoryRisk: true,
-      operationalSignals: true,
-    },
-  });
+  const [form, setForm] = useState<SupplierInput>(() => createDefaultSupplierForm());
 
   const canSubmit = useMemo(() => {
     return (
@@ -83,30 +88,54 @@ export default function NewSupplierCheckForm() {
 
     startTransition(async () => {
       try {
+        const payload = {
+          ...form,
+          platformFoundOn: form.platformFoundOn?.trim()
+            ? form.platformFoundOn
+            : undefined,
+          yearsOnPlatform: form.yearsOnPlatform?.trim()
+            ? form.yearsOnPlatform
+            : undefined,
+          orderSizeUnits: form.orderSizeUnits?.trim()
+            ? form.orderSizeUnits
+            : undefined,
+          quoteReceived: form.quoteReceived?.trim() ? form.quoteReceived : undefined,
+          observations: form.observations?.trim() ? form.observations : undefined,
+        };
+
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            ...form,
-            platformFoundOn: form.platformFoundOn?.trim()
-              ? form.platformFoundOn
-              : undefined,
-            yearsOnPlatform: form.yearsOnPlatform?.trim()
-              ? form.yearsOnPlatform
-              : undefined,
-            orderSizeUnits: form.orderSizeUnits?.trim()
-              ? form.orderSizeUnits
-              : undefined,
-            quoteReceived: form.quoteReceived?.trim() ? form.quoteReceived : undefined,
-            observations: form.observations?.trim() ? form.observations : undefined,
-          }),
+          body: JSON.stringify(payload),
         });
 
         const data = (await res.json()) as any;
         if (!res.ok) {
-          if (res.status === 402 && data?.code === "LIMIT_REACHED") {
+          if (res.status === 503) {
+            const message =
+              typeof data?.error === "string" && data.error.trim()
+                ? data.error
+                : "AI analysis is temporarily unavailable.";
+            const reason =
+              typeof data?.mockedReason === "string" && data.mockedReason.trim()
+                ? data.mockedReason
+                : null;
+            const code =
+              typeof data?.code === "string" && data.code.trim()
+                ? data.code
+                : null;
+            setError(message);
+            const descriptionParts = [
+              reason && reason !== message ? reason : null,
+              code ? `Code: ${code}` : null,
+            ].filter(Boolean) as string[];
+            toast.error(message, {
+              description:
+                descriptionParts.length > 0 ? descriptionParts.join(" · ") : undefined,
+              duration: 10_000,
+            });
+          } else if (res.status === 402 && data?.code === "LIMIT_REACHED") {
             setError(data?.error ?? "Free plan limit reached.");
-            // Create checkout session lazily when needed
             try {
               const ck = await fetch("/api/stripe/checkout", { method: "POST" });
               const ckData = (await ck.json()) as any;
@@ -120,14 +149,16 @@ export default function NewSupplierCheckForm() {
           return;
         }
 
-        if (data?.mocked) {
+        if (data?.mocked && data?.mockedCode === "CACHED") {
           setNotice(
-            "Gemini quota is currently unavailable — showing a demo report so you can keep testing.",
+            "Gemini is rate-limited — showing your most recent successful analysis from a few minutes ago.",
           );
         }
         setReport(data.report as RiskReport);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Network error");
+      } finally {
+        setForm(createDefaultSupplierForm());
       }
     });
   }

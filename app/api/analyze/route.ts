@@ -664,8 +664,10 @@ async function analyzeWithUsagePolicy(userId: string, input: SupplierInput): Pro
   geminiSafetyRatings?: unknown;
   geminiTextSnippet?: string;
   shouldCountUsage: boolean;
+  shouldPersistReport: boolean;
 }> {
   const result = await callGemini(userId, input);
+  const freshAi = !result.mocked;
   return {
     report: result.report,
     mocked: result.mocked,
@@ -674,9 +676,9 @@ async function analyzeWithUsagePolicy(userId: string, input: SupplierInput): Pro
     geminiFinishReason: result.geminiFinishReason,
     geminiSafetyRatings: result.geminiSafetyRatings,
     geminiTextSnippet: result.geminiTextSnippet,
-    // Count usage for both AI and fallback ("demo") reports.
-    // This matches the product rule: free plan includes 3 total checks/month.
-    shouldCountUsage: true,
+    // Only completed Gemini JSON counts toward monthly limits (not quota errors or demo).
+    shouldCountUsage: freshAi,
+    shouldPersistReport: freshAi,
   };
 }
 
@@ -749,10 +751,26 @@ export async function POST(req: Request) {
       geminiSafetyRatings,
       geminiTextSnippet,
       shouldCountUsage,
+      shouldPersistReport,
     } = await analyzeWithUsagePolicy(user.id, input);
 
-    // Count usage only on non-mocked successful AI responses.
-    // This ensures transient Gemini failures (e.g. 503/429) don't burn a free check.
+    // No demo/fallback report when Gemini is unavailable — client shows an error instead.
+    if (mocked && mockedCode !== "CACHED") {
+      return NextResponse.json(
+        {
+          error:
+            mockedReason ??
+            "AI analysis is temporarily unavailable. Please try again in a few minutes.",
+          code: mockedCode ?? "GEMINI_UNAVAILABLE",
+          mockedReason,
+          geminiFinishReason,
+          geminiSafetyRatings,
+          geminiTextSnippet,
+        },
+        { status: 503 },
+      );
+    }
+
     if (shouldCountUsage) {
       await supabase
         .from("profiles")
@@ -760,22 +778,23 @@ export async function POST(req: Request) {
         .eq("user_id", user.id);
     }
 
-    // Persist report (both AI + fallback/demo) for the user's history.
-    await supabase.from("supplier_reports").insert({
-      user_id: user.id,
-      company_name: input.companyName,
-      country: input.countryRegion,
-      platform: input.platformFoundOn ?? null,
-      category: input.productCategory,
-      risk_score: report.riskScore,
-      risk_level: report.riskLevel,
-      summary: report.summary,
-      flags: report.flags,
-      recommendations: report.recommendations,
-      verdict_class: report.verdict.class,
-      verdict_headline: report.verdict.headline,
-      verdict_detail: report.verdict.detail,
-    });
+    if (shouldPersistReport) {
+      await supabase.from("supplier_reports").insert({
+        user_id: user.id,
+        company_name: input.companyName,
+        country: input.countryRegion,
+        platform: input.platformFoundOn ?? null,
+        category: input.productCategory,
+        risk_score: report.riskScore,
+        risk_level: report.riskLevel,
+        summary: report.summary,
+        flags: report.flags,
+        recommendations: report.recommendations,
+        verdict_class: report.verdict.class,
+        verdict_headline: report.verdict.headline,
+        verdict_detail: report.verdict.detail,
+      });
+    }
 
     return NextResponse.json(
       {
@@ -783,7 +802,6 @@ export async function POST(req: Request) {
         mocked,
         mockedCode,
         mockedReason,
-        // Optional debugging hints for the UI/logs when mocked === true.
         geminiFinishReason,
         geminiSafetyRatings,
         geminiTextSnippet,
