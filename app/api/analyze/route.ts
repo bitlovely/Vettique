@@ -175,37 +175,39 @@ async function callGemini(userId: string, input: SupplierInput): Promise<GeminiR
 
   const system = `You are a senior import/export risk analyst with 15 years of experience vetting overseas suppliers for small e-commerce and Amazon sellers. You are direct, specific, and never sugarcoat risks.
 
-Analyse this supplier profile and return a structured JSON report. Be realistic — not every supplier is high risk, but be genuinely critical where warranted.
+Analyse this supplier profile and return ONLY valid JSON (no markdown, no code fences, no commentary before or after the JSON). Be realistic — not every supplier is high risk — but be genuinely critical where warranted.
 
-Return ONLY valid JSON in exactly this structure (no markdown, no backticks).
-Keep the response SHORT so it always fits:
-- summary: max 280 characters
-- each flag.detail: max 180 characters
-- each recommendation: max 140 characters
-- verdict.headline: max 80 characters
-- verdict.detail: max 220 characters
+Return valid JSON in exactly this structure:
 {
   "riskScore": <integer 0-100, where 0=very safe, 100=extreme risk>,
   "riskLevel": "<LOW|MEDIUM|HIGH>",
-  "summary": "<2-3 sentence plain English summary of the overall risk picture>",
+  "summary": "<3-5 sentences in plain English. Reference this supplier by context: country/region, product category, platform (if known), tenure on platform, order size, quote/payment terms, and buyer observations. Say what is solid, what is weak, and what is unknown.>",
   "flags": [
     {
       "severity": "<red|amber|green>",
-      "title": "<short flag title>",
-      "detail": "<1 sentence specific explanation relevant to this supplier>"
+      "title": "<Precise label: name the issue or positive signal for THIS profile — not an umbrella phrase. Prefer roughly 6-14 words.>",
+      "detail": "<2-4 sentences. Explain the mechanism: fraud, quality, logistics, IP, compliance, or financial exposure. Tie claims to the fields supplied; if data is missing, state exactly what is missing and how that increases risk. Aim for roughly 200-450 characters per flag.>"
     }
   ],
   "recommendations": [
-    "<specific actionable step the buyer should take before proceeding>"
+    "<Concrete next step for this buyer: name the verification, document, payment structure, sample plan, or inspection — and why it matters for this country/category/terms. One or two sentences each, roughly 120-320 characters.>"
   ],
   "verdict": {
     "class": "<proceed|caution|avoid>",
-    "headline": "<short verdict headline>",
-    "detail": "<2 sentence verdict explanation>"
+    "headline": "<Verdict tied to evidence — not a slogan. Up to ~120 characters.>",
+    "detail": "<3-4 sentences connecting the verdict to the strongest flags and the buyer's situation.>"
   }
 }
 
-Produce exactly 4 flags and exactly 3 recommendations. Make them specific to the details given, not generic boilerplate.`;
+STRICT COUNTS:
+- flags: minimum 4, maximum 6 (never fewer than 4, never more than 6).
+- recommendations: minimum 4, maximum 5.
+
+COVERAGE: When CHECKS TO RUN lists enabled dimensions (legitimacy, paymentTerms, locationRisk, platformSignals, productCategoryRisk, operationalSignals), spread your flags across those themes where relevant. If a check is disabled, you may omit that theme. Include a mix of severities when the profile warrants it (use green flags for genuine positives, not filler).
+
+FORBIDDEN — do not use these as flag titles, recommendation text, or vague substitutes for analysis (alone or as the bulk of a field): "Multiple issues found", "Various concerns", "Mixed signals", "Further investigation needed", "Further review needed", "Avoid engagement", "Be cautious", "Exercise caution", "Do your due diligence", "Do more research", "Proceed with caution" without naming specific controls. Every flag title must name a concrete topic (e.g. payment structure, platform traceability, category compliance, MOQ vs. order size, shipping/incoterms, buyer-stated red flags).
+
+QUALITY BAR: A competent importer reading the JSON should know exactly what to verify next for this supplier — not generic e-commerce advice.`;
 
   const enabledChecks = Object.entries(input.checksToRun)
     .filter(([, v]) => v)
@@ -232,47 +234,47 @@ ${enabledChecks.length ? enabledChecks.join(", ") : "none (still provide a balan
       },
     ],
     generationConfig: {
-      temperature: 0.3,
+      temperature: 0.35,
       responseMimeType: "application/json",
-      // Keep this moderate to reduce 429s on free tier.
-      maxOutputTokens: 1600,
+      // Enough room for 4-6 detailed flags + 4-5 recommendations without truncation.
+      maxOutputTokens: 4096,
     },
   } as const;
 
-  const compactSystem = `${system}
+  const retrySystem = `${system}
 
-IMPORTANT: Keep the JSON extremely compact. Use very short sentences.`;
+RETRY: If your previous attempt was truncated or invalid JSON, output one complete valid JSON object only. If you must shorten text to fit, trim adjectives first — never reduce the number of flags below 4 or recommendations below 4, and never replace specifics with generic phrases.`;
 
   const compactPayload = {
     contents: [
       {
         role: "user",
-        parts: [{ text: `${compactSystem}\n\n${prompt}` }],
+        parts: [{ text: `${retrySystem}\n\n${prompt}` }],
       },
     ],
     generationConfig: {
-      temperature: 0.2,
+      temperature: 0.25,
       responseMimeType: "application/json",
-      // Intentionally smaller to force brevity and reduce truncation risk.
-      maxOutputTokens: 1100,
+      maxOutputTokens: 4096,
     },
   } as const;
 
   function buildRepairPayload(truncatedJson: string) {
-    const repairSystem = `You will be given a TRUNCATED JSON document that should match a specific schema.
-Output ONLY a complete, valid JSON object matching the schema.
-- Do NOT include markdown or backticks.
-- Preserve existing values where present; only add what is missing to complete the structure.
-- Keep all strings short.
+    const repairSystem = `You will be given a TRUNCATED or partial JSON supplier risk report.
+Output ONLY one complete, valid JSON object. No markdown or backticks.
+- Preserve and expand existing specific wording where it is already concrete.
+- Ensure the final object has 4-6 flags and 4-5 recommendations (add missing entries with supplier-specific content inferred from whatever fields are present in the partial JSON — never generic placeholders like "Multiple issues found" or "Further investigation needed").
+- Each flag needs severity, title (concrete topic), and detail (2-4 sentences when possible).
+- Each recommendation must name a specific action.
 
 Schema (must match exactly):
 {
   "riskScore": <integer 0-100>,
   "riskLevel": "<LOW|MEDIUM|HIGH>",
-  "summary": "<short summary>",
-  "flags": [{"severity":"<red|amber|green>","title":"<short>","detail":"<short>"}],
-  "recommendations": ["<short>"],
-  "verdict": {"class":"<proceed|caution|avoid>","headline":"<short>","detail":"<short>"}
+  "summary": "<string>",
+  "flags": [{"severity":"<red|amber|green>","title":"<string>","detail":"<string>"}],
+  "recommendations": ["<string>"],
+  "verdict": {"class":"<proceed|caution|avoid>","headline":"<string>","detail":"<string>"}
 }`;
 
     return {
@@ -285,7 +287,7 @@ Schema (must match exactly):
       generationConfig: {
         temperature: 0,
         responseMimeType: "application/json",
-        maxOutputTokens: 900,
+        maxOutputTokens: 3072,
       },
     } as const;
   }
