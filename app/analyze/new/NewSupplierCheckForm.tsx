@@ -144,7 +144,7 @@ export default function NewSupplierCheckForm() {
                 descriptionParts.length > 0 ? descriptionParts.join(" · ") : undefined,
               duration: 10_000,
             });
-          } else if (res.status === 402 && data?.code === "LIMIT_REACHED") {
+          } else if (res.status === 402 && dataCode === "LIMIT_REACHED") {
             setError(dataError ?? "Free plan limit reached.");
             try {
               const ck = await fetch("/api/stripe/checkout", { method: "POST" });
