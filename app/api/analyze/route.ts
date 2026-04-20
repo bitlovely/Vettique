@@ -277,9 +277,14 @@ async function callGemini(userId: string, input: SupplierInput): Promise<GeminiR
   function parseRetryAfterMs(res: Response): number | null {
     const v = res.headers.get("retry-after");
     if (!v) return null;
-    // retry-after can be seconds or an HTTP date. We handle seconds.
+    // retry-after can be seconds or an HTTP date.
     const seconds = Number(v);
     if (Number.isFinite(seconds) && seconds > 0) return Math.round(seconds * 1000);
+    const atMs = Date.parse(v);
+    if (Number.isFinite(atMs)) {
+      const delta = atMs - Date.now();
+      if (delta > 0) return Math.min(60_000, Math.round(delta));
+    }
     return null;
   }
 
@@ -450,14 +455,35 @@ Schema (must match exactly):
   const apiKeySafe = apiKey as string;
 
   async function fetchWithRetry(payload: unknown): Promise<Response> {
-    let res: Response;
-    const maxAttempts = 5;
+    const timeoutMs = Math.max(
+      2_000,
+      Math.min(60_000, Number(process.env.GEMINI_TIMEOUT_MS ?? 15_000)),
+    );
+    let res: Response | null = null;
+    const maxAttempts = 6;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      res = await fetch(`${endpoint}?key=${encodeURIComponent(apiKeySafe)}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      try {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeoutMs);
+        res = await fetch(`${endpoint}?key=${encodeURIComponent(apiKeySafe)}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+        clearTimeout(id);
+      } catch {
+        // Network/timeout errors are transient; retry like 503.
+        if (attempt >= maxAttempts) {
+          return new Response("Gemini network error", { status: 503 });
+        }
+        const backoffMs = Math.min(
+          30_000,
+          Math.round((800 * 2 ** (attempt - 1)) * (0.8 + Math.random() * 0.6)),
+        );
+        await sleep(backoffMs);
+        continue;
+      }
 
       if (res.ok) return res;
       // Retry on transient capacity/rate-limit errors.
@@ -474,9 +500,7 @@ Schema (must match exactly):
         await sleep(backoffMs);
       }
     }
-    // TypeScript: res is assigned in loop before possible return.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    return res!;
+    return res ?? new Response("Gemini error", { status: 503 });
   }
 
   /** Prefer structured JSON schema; on 400 (unsupported / bad schema) retry once without schema. */
@@ -513,7 +537,7 @@ Schema (must match exactly):
       mocked: true,
       mockedCode: "CACHED",
       mockedReason:
-        "Using a recent successful AI result (cached) due to rate limiting.",
+        "Using a recent successful AI result (cached) because Gemini is temporarily unavailable.",
     };
   }
 
@@ -533,6 +557,8 @@ Schema (must match exactly):
         };
       }
       if (res.status === 503) {
+        const cached = getCachedGood();
+        if (cached) return cached;
         return {
           report: buildMockReport(input),
           mocked: true,
@@ -545,13 +571,19 @@ Schema (must match exactly):
       throw new Error(`Gemini error: ${res.status} ${text}`.slice(0, 500));
     }
 
-    const data = (await res.json()) as any;
+    type GeminiApiResponse = {
+      candidates?: Array<{
+        content?: { parts?: Array<{ text?: string }> };
+        finishReason?: string;
+        safetyRatings?: unknown;
+      }>;
+    };
+
+    const data = (await res.json()) as GeminiApiResponse;
     const text =
-      data?.candidates?.[0]?.content?.parts
-        ?.map((p: any) => p?.text)
-        .join("") ?? "";
-    const finishReason = data?.candidates?.[0]?.finishReason as unknown;
-    const safetyRatings = data?.candidates?.[0]?.safetyRatings as unknown;
+      data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+    const finishReason = data.candidates?.[0]?.finishReason as unknown;
+    const safetyRatings = data.candidates?.[0]?.safetyRatings as unknown;
     const textSnippet =
       typeof text === "string" && text.trim().length
         ? text.trim().slice(0, 200)

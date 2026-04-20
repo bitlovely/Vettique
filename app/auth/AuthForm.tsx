@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
+import { formatAuthErrorMessage } from "@/lib/auth/formatAuthError";
 import { createClient } from "@/lib/supabase/client";
 
 type Tab = "login" | "signup";
@@ -81,7 +82,7 @@ export default function AuthForm() {
           : await supabase.auth.signInWithPassword({ email, password });
 
       if (authError) {
-        setError(authError.message);
+        setError(formatAuthErrorMessage(authError, tab));
         return;
       }
 

@@ -79,6 +79,10 @@ export default function NewSupplierCheckForm() {
     );
   }, [form]);
 
+  function asNonEmptyString(v: unknown): string | null {
+    return typeof v === "string" && v.trim().length ? v : null;
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -109,20 +113,26 @@ export default function NewSupplierCheckForm() {
           body: JSON.stringify(payload),
         });
 
-        const data = (await res.json()) as any;
+        const data: unknown = await res.json();
+        const dataObj =
+          data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+        const dataError = dataObj ? asNonEmptyString(dataObj.error) : null;
+        const dataCode = dataObj ? asNonEmptyString(dataObj.code) : null;
+        const dataMockedReason = dataObj ? asNonEmptyString(dataObj.mockedReason) : null;
+
         if (!res.ok) {
           if (res.status === 503) {
             const message =
-              typeof data?.error === "string" && data.error.trim()
-                ? data.error
+              dataError
+                ? dataError
                 : "AI analysis is temporarily unavailable.";
             const reason =
-              typeof data?.mockedReason === "string" && data.mockedReason.trim()
-                ? data.mockedReason
+              dataMockedReason
+                ? dataMockedReason
                 : null;
             const code =
-              typeof data?.code === "string" && data.code.trim()
-                ? data.code
+              dataCode
+                ? dataCode
                 : null;
             setError(message);
             const descriptionParts = [
@@ -135,26 +145,35 @@ export default function NewSupplierCheckForm() {
               duration: 10_000,
             });
           } else if (res.status === 402 && data?.code === "LIMIT_REACHED") {
-            setError(data?.error ?? "Free plan limit reached.");
+            setError(dataError ?? "Free plan limit reached.");
             try {
               const ck = await fetch("/api/stripe/checkout", { method: "POST" });
-              const ckData = (await ck.json()) as any;
-              if (ck.ok && ckData?.url) setUpgradeUrl(ckData.url);
+              const ckData: unknown = await ck.json();
+              const ckObj =
+                ckData && typeof ckData === "object"
+                  ? (ckData as Record<string, unknown>)
+                  : null;
+              const url = ckObj ? asNonEmptyString(ckObj.url) : null;
+              if (ck.ok && url) setUpgradeUrl(url);
             } catch {
               // ignore
             }
           } else {
-            setError(data?.error ?? "Something went wrong.");
+            setError(dataError ?? "Something went wrong.");
           }
           return;
         }
 
-        if (data?.mocked && data?.mockedCode === "CACHED") {
+        const mocked = dataObj ? dataObj.mocked === true : false;
+        const mockedCode = dataObj ? asNonEmptyString(dataObj.mockedCode) : null;
+        const report = dataObj ? dataObj.report : null;
+
+        if (mocked && mockedCode === "CACHED") {
           setNotice(
-            "Gemini is rate-limited — showing your most recent successful analysis from a few minutes ago.",
+            "Gemini is temporarily unavailable — showing your most recent successful analysis from a few minutes ago.",
           );
         }
-        setReport(data.report as RiskReport);
+        setReport(report as RiskReport);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Network error");
       } finally {
