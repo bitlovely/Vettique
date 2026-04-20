@@ -839,6 +839,14 @@ export async function POST(req: Request) {
 
     // No demo/fallback report when Gemini is unavailable — client shows an error instead.
     if (mocked && mockedCode !== "CACHED") {
+      const status =
+        mockedCode === "RATE_LIMITED"
+          ? 429
+          : mockedCode === "NO_API_KEY"
+            ? 500
+            : mockedCode === "UNAVAILABLE"
+              ? 503
+              : 502;
       return NextResponse.json(
         {
           error:
@@ -850,7 +858,7 @@ export async function POST(req: Request) {
           geminiSafetyRatings,
           geminiTextSnippet,
         },
-        { status: 503 },
+        { status },
       );
     }
 
