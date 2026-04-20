@@ -248,11 +248,6 @@ type GeminiResult = {
 // Best-effort dedupe/cache to avoid burst 429s from double-submits.
 // Note: This is in-memory per server instance (good for dev and single instance).
 const inFlightByUser = new Map<string, Promise<GeminiResult>>();
-const lastGoodByUser = new Map<
-  string,
-  { atMs: number; result: GeminiResult }
->();
-const LAST_GOOD_TTL_MS = 5 * 60 * 1000;
 
 // Best-effort per-instance concurrency limiter to avoid bursty overload on Vercel.
 let geminiInFlight = 0;
@@ -553,27 +548,9 @@ Schema (must match exactly):
     return res;
   }
 
-  function getCachedGood(): GeminiResult | null {
-    const v = lastGoodByUser.get(userId);
-    if (!v) return null;
-    if (Date.now() - v.atMs > LAST_GOOD_TTL_MS) return null;
-    return {
-      ...v.result,
-      mocked: true,
-      mockedCode: "CACHED",
-      mockedReason:
-        "Using a recent successful AI result (cached) because Gemini is temporarily unavailable.",
-    };
-  }
-
   async function parseResponseOrFallback(res: Response): Promise<GeminiResult> {
     if (!res.ok) {
       if (res.status === 429) {
-        // If we have a recent good result, prefer returning that over a fallback.
-        // This avoids showing "rate limited" to the user on repeated submits.
-        // (Still does NOT count usage because it's returned as mocked.)
-        const cached = getCachedGood();
-        if (cached) return cached;
         return {
           report: buildMockReport(input),
           mocked: true,
@@ -582,8 +559,6 @@ Schema (must match exactly):
         };
       }
       if (res.status === 503) {
-        const cached = getCachedGood();
-        if (cached) return cached;
         return {
           report: buildMockReport(input),
           mocked: true,
@@ -593,8 +568,6 @@ Schema (must match exactly):
         };
       }
       if (res.status === 521) {
-        const cached = getCachedGood();
-        if (cached) return cached;
         return {
           report: buildMockReport(input),
           mocked: true,
@@ -728,7 +701,6 @@ Schema (must match exactly):
     );
     if (!first.mocked) {
       const finalized = await ensureReportCountsIfNeeded(first);
-      lastGoodByUser.set(userId, { atMs: Date.now(), result: finalized });
       return finalized;
     }
     if (
@@ -744,7 +716,6 @@ Schema (must match exactly):
     );
     if (!second.mocked) {
       const finalized = await ensureReportCountsIfNeeded(second);
-      lastGoodByUser.set(userId, { atMs: Date.now(), result: finalized });
       return finalized;
     }
 
@@ -760,7 +731,6 @@ Schema (must match exactly):
       );
       if (!repaired.mocked) {
         const finalized = await ensureReportCountsIfNeeded(repaired);
-        lastGoodByUser.set(userId, { atMs: Date.now(), result: finalized });
         return finalized;
       }
     }
