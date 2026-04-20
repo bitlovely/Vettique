@@ -91,6 +91,7 @@ export default function NewSupplierCheckForm() {
     setUpgradeUrl(null);
 
     startTransition(async () => {
+      let didSucceed = false;
       try {
         const payload = {
           ...form,
@@ -119,13 +120,15 @@ export default function NewSupplierCheckForm() {
         const dataError = dataObj ? asNonEmptyString(dataObj.error) : null;
         const dataCode = dataObj ? asNonEmptyString(dataObj.code) : null;
         const dataMockedReason = dataObj ? asNonEmptyString(dataObj.mockedReason) : null;
+        const dataTransient =
+          dataObj && typeof dataObj.transient === "boolean" ? dataObj.transient : false;
 
         if (!res.ok) {
-          if (res.status === 503) {
+          if ((res.status === 503 || res.status === 429) && dataTransient) {
             const message =
               dataError
                 ? dataError
-                : "AI analysis is temporarily unavailable.";
+                : "High demand request, so retry for a while.";
             const reason =
               dataMockedReason
                 ? dataMockedReason
@@ -144,6 +147,7 @@ export default function NewSupplierCheckForm() {
                 descriptionParts.length > 0 ? descriptionParts.join(" · ") : undefined,
               duration: 10_000,
             });
+            // Keep form inputs so user can retry.
           } else if (res.status === 402 && dataCode === "LIMIT_REACHED") {
             setError(dataError ?? "Free plan limit reached.");
             try {
@@ -174,10 +178,11 @@ export default function NewSupplierCheckForm() {
           );
         }
         setReport(report as RiskReport);
+        didSucceed = true;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Network error");
       } finally {
-        setForm(createDefaultSupplierForm());
+        if (didSucceed) setForm(createDefaultSupplierForm());
       }
     });
   }
