@@ -917,7 +917,8 @@ export async function POST(req: Request) {
       shouldPersistReport,
     } = await analyzeWithUsagePolicy(userId, input);
 
-    // No demo/fallback report when Gemini is unavailable — client shows an error instead.
+    // If Gemini is unavailable/rate-limited, prefer returning a usable fallback report (200)
+    // so users aren't blocked by transient 429/503 bursts.
     if (mocked && mockedCode !== "CACHED") {
       const persisted = await getRecentPersistedReport();
       if (persisted) {
@@ -932,28 +933,19 @@ export async function POST(req: Request) {
           { status: 200 },
         );
       }
-      const status =
-        mockedCode === "RATE_LIMITED"
-          ? 429
-          : mockedCode === "NO_API_KEY"
-            ? 500
-            : mockedCode === "UNAVAILABLE"
-              ? 503
-              : mockedCode === "NETWORK_ERROR"
-                ? 503
-              : 502;
       return NextResponse.json(
         {
-          error:
+          report,
+          mocked: true,
+          mockedCode: mockedCode ?? "GEMINI_UNAVAILABLE",
+          mockedReason:
             mockedReason ??
-            "AI analysis is temporarily unavailable. Please try again in a few minutes.",
-          code: mockedCode ?? "GEMINI_UNAVAILABLE",
-          mockedReason,
+            "AI analysis is temporarily unavailable. This is a fallback report; please retry for a fresh result.",
           geminiFinishReason,
           geminiSafetyRatings,
           geminiTextSnippet,
         },
-        { status },
+        { status: 200 },
       );
     }
 
