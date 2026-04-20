@@ -30,6 +30,7 @@ type MockedCode =
   | "NO_API_KEY"
   | "RATE_LIMITED"
   | "UNAVAILABLE"
+  | "NETWORK_ERROR"
   | "TRUNCATED"
   | "CACHED"
   | "NON_JSON"
@@ -253,6 +254,28 @@ const lastGoodByUser = new Map<
 >();
 const LAST_GOOD_TTL_MS = 5 * 60 * 1000;
 
+// Best-effort per-instance concurrency limiter to avoid bursty overload on Vercel.
+let geminiInFlight = 0;
+const geminiWaiters: Array<() => void> = [];
+function getGeminiMaxInFlight(): number {
+  const n = Number(process.env.GEMINI_MAX_IN_FLIGHT ?? 2);
+  return Number.isFinite(n) && n >= 1 && n <= 10 ? Math.floor(n) : 2;
+}
+async function acquireGeminiSlot(): Promise<void> {
+  const max = getGeminiMaxInFlight();
+  if (geminiInFlight < max) {
+    geminiInFlight++;
+    return;
+  }
+  await new Promise<void>((resolve) => geminiWaiters.push(resolve));
+  geminiInFlight++;
+}
+function releaseGeminiSlot() {
+  geminiInFlight = Math.max(0, geminiInFlight - 1);
+  const next = geminiWaiters.shift();
+  if (next) next();
+}
+
 async function callGemini(userId: string, input: SupplierInput): Promise<GeminiResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -359,7 +382,8 @@ RETRY: The API failed to parse your last reply as JSON (malformed, extra text, o
     generationConfig: {
       temperature: 0.28,
       responseMimeType: "application/json",
-      maxOutputTokens: 4096,
+      // Lower output size improves latency and reduces transient overload/503 frequency.
+      maxOutputTokens: 2048,
     },
   };
 
@@ -373,7 +397,7 @@ RETRY: The API failed to parse your last reply as JSON (malformed, extra text, o
     generationConfig: {
       temperature: 0.12,
       responseMimeType: "application/json",
-      maxOutputTokens: 4096,
+      maxOutputTokens: 2048,
     },
   };
 
@@ -412,7 +436,7 @@ Schema:
       generationConfig: {
         temperature: strict ? 0.1 : 0.2,
         responseMimeType: "application/json",
-        maxOutputTokens: 4096,
+        maxOutputTokens: 2048,
       },
     } as const;
   }
@@ -475,7 +499,8 @@ Schema (must match exactly):
       } catch {
         // Network/timeout errors are transient; retry like 503.
         if (attempt >= maxAttempts) {
-          return new Response("Gemini network error", { status: 503 });
+          // Use a distinct status so we can show a precise message upstream.
+          return new Response("Gemini network error", { status: 521 });
         }
         const backoffMs = Math.min(
           30_000,
@@ -565,6 +590,17 @@ Schema (must match exactly):
           mockedCode: "UNAVAILABLE",
           mockedReason:
             "Gemini is temporarily unavailable due to high demand (503).",
+        };
+      }
+      if (res.status === 521) {
+        const cached = getCachedGood();
+        if (cached) return cached;
+        return {
+          report: buildMockReport(input),
+          mocked: true,
+          mockedCode: "NETWORK_ERROR",
+          mockedReason:
+            "Your server could not reach the Gemini API (network/DNS/proxy/firewall/timeout).",
         };
       }
       const text = await res.text().catch(() => "");
@@ -684,6 +720,8 @@ Schema (must match exactly):
   if (existing) return existing;
 
   const work = (async (): Promise<GeminiResult> => {
+    await acquireGeminiSlot();
+    try {
     // First attempt (normal). If it gets truncated/non-JSON, retry once compact.
     const first = await parseResponseOrFallback(
       await fetchWithSchemaFallback(mainPayload),
@@ -728,6 +766,9 @@ Schema (must match exactly):
     }
 
     return first;
+    } finally {
+      releaseGeminiSlot();
+    }
   })();
 
   inFlightByUser.set(userId, work);
@@ -773,6 +814,45 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const userId = user.id;
+
+    async function getRecentPersistedReport(): Promise<RiskReport | null> {
+      const ttlMs = Math.max(
+        30_000,
+        Math.min(60 * 60 * 1000, Number(process.env.RECENT_REPORT_TTL_MS ?? 5 * 60 * 1000)),
+      );
+      const { data, error } = await supabase
+        .from("supplier_reports")
+        .select(
+          "created_at,risk_score,risk_level,summary,flags,recommendations,verdict_class,verdict_headline,verdict_detail",
+        )
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error || !data) return null;
+      const createdAtMs = Date.parse(String((data as any).created_at));
+      if (!Number.isFinite(createdAtMs)) return null;
+      if (Date.now() - createdAtMs > ttlMs) return null;
+
+      const d = data as Record<string, unknown>;
+      const flags = Array.isArray(d.flags) ? (d.flags as RiskReport["flags"]) : [];
+      const recommendations = Array.isArray(d.recommendations)
+        ? (d.recommendations as string[])
+        : [];
+      return {
+        riskScore: clampScore(Number(d.risk_score)),
+        riskLevel: normalizeRiskLevel(d.risk_level),
+        summary: typeof d.summary === "string" ? d.summary : "",
+        flags,
+        recommendations,
+        verdict: {
+          class: normalizeVerdictClass(d.verdict_class),
+          headline: typeof d.verdict_headline === "string" ? d.verdict_headline : "",
+          detail: typeof d.verdict_detail === "string" ? d.verdict_detail : "",
+        },
+      };
     }
 
     const body = await req.json();
@@ -835,10 +915,23 @@ export async function POST(req: Request) {
       geminiTextSnippet,
       shouldCountUsage,
       shouldPersistReport,
-    } = await analyzeWithUsagePolicy(user.id, input);
+    } = await analyzeWithUsagePolicy(userId, input);
 
     // No demo/fallback report when Gemini is unavailable — client shows an error instead.
     if (mocked && mockedCode !== "CACHED") {
+      const persisted = await getRecentPersistedReport();
+      if (persisted) {
+        return NextResponse.json(
+          {
+            report: persisted,
+            mocked: true,
+            mockedCode: "CACHED",
+            mockedReason:
+              "Using your most recent successful analysis due to a temporary AI service issue.",
+          },
+          { status: 200 },
+        );
+      }
       const status =
         mockedCode === "RATE_LIMITED"
           ? 429
@@ -846,6 +939,8 @@ export async function POST(req: Request) {
             ? 500
             : mockedCode === "UNAVAILABLE"
               ? 503
+              : mockedCode === "NETWORK_ERROR"
+                ? 503
               : 502;
       return NextResponse.json(
         {
@@ -866,12 +961,12 @@ export async function POST(req: Request) {
       await supabase
         .from("profiles")
         .update({ checks_this_month: checksThisMonth + 1 })
-        .eq("user_id", user.id);
+        .eq("user_id", userId);
     }
 
     if (shouldPersistReport) {
       await supabase.from("supplier_reports").insert({
-        user_id: user.id,
+        user_id: userId,
         company_name: input.companyName,
         country: input.countryRegion,
         platform: input.platformFoundOn ?? null,
